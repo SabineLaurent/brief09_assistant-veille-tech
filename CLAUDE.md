@@ -113,6 +113,22 @@ chunking, etc.) : c'est la spec exécutable à suivre pour l'implémentation.
 (8000, monte `./app` et `./scripts` en volumes — rechargement à chaud via `--reload`),
 `frontend` (3000, dépend du backend).
 
+## Règles de sécurité
+
+- Ne jamais lire, afficher ou citer le contenu de `.env` ou tout fichier contenant des secrets.
+- Si tu as besoin de connaître une variable d'environnement, demande son nom uniquement, pas sa valeur.
+
+## Autres règles
+
+- YAGNI: "You Ain't Gonna Need It"
+- SOC: "Separation of Concerns"
+- DRY: "Don't Repeat Yourself"
+- KISS: "Keep It Simple, Stupid"
+- NTUI: "Never Trust User Inputs"
+
+Pour un premier jet, on peut coder en spaghetti code.
+Mais ensuite, tu proposes étape par étape des modifications pour respecter les principes précédemment cités.
+
 ## Informations supplémentaires
 
 Fichiers à lire en complément:
