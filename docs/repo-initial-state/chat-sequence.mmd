@@ -1,0 +1,78 @@
+%% Séquence du flux POST /chat — Nauda Palisse Assistant Veille Tech
+%% Source : deep-dive.md, Partie 1 (trace fonction par fonction)
+sequenceDiagram
+    autonumber
+    actor U as Utilisateur
+    participant FE as Frontend (page.tsx)
+    participant API as api.ts (postChat)
+    participant BE as FastAPI /chat (main.py)
+    participant CH as handle_chat (chat.py)
+    participant RET as retrieval.retrieve (retrieval.py)
+    participant CHROMA as Chroma (chroma_client + DB)
+    participant EMB as Embedder (multilingual-e5-small)
+    participant ENR as enrich_retrieval (enrich.py)
+    participant FN as fresh_news.fetch (fresh_news.py)
+    participant LLM as compose_answer + Azure AI (llm.py)
+
+    U->>FE: clic « Lancer la veille »
+    FE->>FE: effectiveTopics = [...selected, customTopic]
+    FE->>API: postChat(question, effectiveTopics)
+    API->>BE: POST /chat (question, topics)
+    BE->>CH: handle_chat(req)
+    CH->>CH: query = _expand_query(question, topics)
+    CH->>RET: retrieve(query, k=8)
+    RET->>CHROMA: get_collection()
+    RET->>EMB: embed(query)
+    EMB-->>RET: query_vec (normalisé)
+    RET->>CHROMA: collection.query(query_embeddings, n_results=8)
+    CHROMA-->>RET: ids / documents / metadatas / distances
+    RET->>RET: normalisation → liste de {id, content, metadata, distance}
+    RET-->>CH: retrieved
+
+    rect rgb(245, 245, 245)
+    note over CH,ENR: Enrichissement optionnel (try/except NotImplementedError)
+    CH->>ENR: enrich_retrieval(retrieved)
+    alt stub non implémenté
+        ENR-->>CH: raise NotImplementedError
+        CH->>CH: enriched = []
+    else implémenté et non vide
+        ENR-->>CH: enriched (même forme {id, content, metadata, distance})
+        CH->>CH: retrieved = retrieved + enriched
+    end
+    end
+
+    rect rgb(245, 245, 245)
+    note over CH,FN: Actu fraîche optionnelle (try/except NotImplementedError)
+    CH->>FN: await fetch(topics=req.topics, since=None)
+    alt stub non implémenté
+        FN-->>CH: raise NotImplementedError
+        CH->>CH: fresh = []
+    else implémenté
+        FN-->>CH: fresh (liste d'articles)
+    end
+    end
+
+    CH->>LLM: compose_answer(question, topics, retrieved, fresh)
+    LLM->>LLM: cards = _build_cards(retrieved, fresh)
+
+    alt rien à montrer (retrieved vide ET fresh vide)
+        LLM-->>CH: ChatResponse(answer="Aucun article…", cards=[], status="empty")
+    else LLM non configuré (get_llm() is None)
+        LLM-->>CH: ChatResponse(answer="N article(s)… LLM non configuré", cards=cards, status="degraded")
+    else LLM disponible
+        LLM->>LLM: context = _format_context(retrieved, fresh)
+        LLM->>LLM: payload = {question, topics, context} sérialisé en JSON
+        LLM->>LLM: ainvoke([SystemMessage(SYSTEM_PROMPT), HumanMessage(payload)])
+        alt appel LLM réussi
+            LLM->>LLM: answer = _extract_answer(raw)
+        else exception (réseau / auth / parsing)
+            LLM->>LLM: answer = "Synthèse indisponible (erreur LLM). N article(s) référencé(s)."
+        end
+        LLM-->>CH: ChatResponse(answer, cards, status="ok")
+    end
+
+    CH-->>BE: ChatResponse
+    BE-->>API: 200 OK {answer, cards, status}
+    API-->>FE: ChatResponse
+    FE->>FE: rend synthèse + grille de cartes (ou « Aucun résultat pour le moment »)
+    FE-->>U: affichage de la réponse

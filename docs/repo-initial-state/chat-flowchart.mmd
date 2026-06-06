@@ -1,0 +1,47 @@
+%% Flowchart du flux POST /chat — Nauda Palisse Assistant Veille Tech
+%% Source : deep-dive.md, Partie 1 (trace fonction par fonction)
+flowchart TD
+    A["Utilisateur clique « Lancer la veille »"] --> B["Frontend page.tsx<br/>effectiveTopics = [...selected, customTopic]"]
+    B --> C["api.ts : postChat(question, topics)<br/>POST /chat"]
+    C --> D["FastAPI /chat (main.py)<br/>valide ChatRequest via Pydantic"]
+    D --> E["handle_chat (chat.py)"]
+    E --> F["query = _expand_query(question, topics)<br/>question, ou « question | topic1, topic2 »"]
+    F --> G["retrieval.retrieve(query, k=8)"]
+
+    subgraph RAG["Retrieval vectoriel — retrieval.py"]
+        G --> G1["get_collection() — chroma_client.py"]
+        G1 --> G2["embed(query) via SentenceTransformer<br/>multilingual-e5-small, normalisé"]
+        G2 --> G3["collection.query(query_embeddings, n_results=8)"]
+        G3 --> G4["normalisation → liste de<br/>{id, content, metadata, distance}"]
+    end
+
+    G4 --> H["retrieved : list[dict]"]
+
+    H --> I["try : enrich_retrieval(retrieved)"]
+    I -->|NotImplementedError| I1["enriched = []"]
+    I -->|ok et non vide| I2["retrieved = retrieved + enriched"]
+    I1 --> J["try : await fresh_news.fetch(topics, since=None)"]
+    I2 --> J
+
+    J -->|NotImplementedError| J1["fresh = []"]
+    J -->|ok| J2["fresh = articles"]
+    J1 --> K["compose_answer(question, topics, retrieved, fresh)"]
+    J2 --> K
+
+    K --> K1["cards = _build_cards(retrieved, fresh)"]
+    K1 --> L{"retrieved vide<br/>ET fresh vide ?"}
+    L -->|oui| L1["status = « empty »<br/>réponse statique : « Aucun article ne couvre encore ce sujet… »"]
+    L -->|non| M{"get_llm() est None ?"}
+    M -->|oui — LLM absent| M1["status = « degraded »<br/>cartes brutes + « LLM non configuré »"]
+    M -->|non — LLM dispo| N["context = _format_context(retrieved, fresh)"]
+    N --> N1["llm.ainvoke(SystemMessage(SYSTEM_PROMPT), HumanMessage(payload JSON))"]
+    N1 --> O{"appel LLM réussi ?"}
+    O -->|oui| O1["answer = _extract_answer(raw)<br/>json.loads(raw)['answer'] sinon raw.strip()"]
+    O -->|exception réseau / auth / parsing| O2["answer = « Synthèse indisponible (erreur LLM).<br/>N article(s) référencé(s). »"]
+    O1 --> P["status = « ok »<br/>ChatResponse(answer, cards, status)"]
+    O2 --> P
+
+    L1 --> Q["ChatResponse renvoyée → FastAPI → frontend"]
+    M1 --> Q
+    P --> Q
+    Q --> R["page.tsx affiche : synthèse + grille de cartes<br/>(ou « Aucun résultat pour le moment » si cards vide)"]
