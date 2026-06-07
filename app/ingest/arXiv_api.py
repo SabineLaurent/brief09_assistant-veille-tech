@@ -207,7 +207,7 @@ if __name__ == "__main__":
      - À terme, ce script sera remplacé par une tâche planifiée (cron)
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    from app.data.articles_recorder import count_articles, upsert_article
+    from app.data.article_store import count_articles, upsert_article
     from app.data.csv_exporter import export_to_csv
 
     ingester = ArXivApiIngester()

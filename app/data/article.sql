@@ -7,5 +7,6 @@ CREATE TABLE IF NOT EXISTS article (
     content        TEXT NOT NULL,
     url            TEXT NOT NULL,
     tags           TEXT NOT NULL,
-    authors        TEXT NOT NULL
+    authors        TEXT NOT NULL,
+    status         TEXT NOT NULL DEFAULT 'ingested' CHECK (status IN ('ingested', 'indexed', 'error'))
 );

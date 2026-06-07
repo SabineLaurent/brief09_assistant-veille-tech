@@ -37,3 +37,24 @@ def count_articles(db_path: str | None = None) -> int:
     with sqlite3.connect(path) as conn:
         row = conn.execute("SELECT COUNT(*) FROM article").fetchone()
         return row[0]
+
+
+def update_article_status(reference: str, status: str, db_path: str | None = None) -> None:
+    """Met à jour le status d'un article ('ingested', 'indexed', 'error')."""
+    path = db_path or get_settings().ingest_db_path
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE article SET status = ? WHERE reference = ?",
+            (status, reference),
+        )
+
+
+def read_ingested_articles(db_path: str | None = None) -> list[dict]:
+    """Retourne tous les articles avec status='ingested' (non encore indexés)."""
+    path = db_path or get_settings().ingest_db_path
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM article WHERE status = 'ingested'"
+        ).fetchall()
+        return [dict(row) for row in rows]
