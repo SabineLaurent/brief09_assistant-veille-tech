@@ -10,6 +10,7 @@ from lxml import etree
 
 from app.config import Settings, get_settings
 
+
 log = logging.getLogger(__name__)
 
 _ATOM = "http://www.w3.org/2005/Atom"
@@ -66,6 +67,7 @@ class ArXivApiIngester:
         """
         Convertit un élément <entry> en dictionnaire.
         """
+
         def text(name: str) -> str:
             el = entry.find(_tag(name))
             return el.text.strip() if el is not None and el.text else ""
@@ -94,6 +96,12 @@ class ArXivApiIngester:
         }
 
     def normalize_article(self, article: dict[str, Any]) -> dict[str, Any]:
+        """
+        Normalise les données d'un article arXiv.
+         - Extrait l'ID arXiv de l'URL (ex: "2411.18583v1")
+         - Convertit la date de publication en objet datetime
+         - Construit une liste de tags à partir de la catégorie + les mots-clés
+        """
         arxiv_id = article["id"].split("/abs/")[-1]  # ex: "2411.18583v1"
 
         published = article.get("published", "")
@@ -111,11 +119,31 @@ class ArXivApiIngester:
         }
 
     def run(self) -> list[dict[str, Any]]:
+        """
+        Récupère et normalise les articles arXiv pour tous les topics configurés,
+        en excluant ceux publiés avant `arxiv_min_year`.
+
+        Le filtre est appliqué ici plutôt que dans la requête API car l'endpoint
+        arXiv Atom n'expose pas de paramètre de filtre par date de publication.
+        Le paramètre `submittedDate` filtre sur la date de dépôt initiale, qui peut
+        diverger de `published` (révisions, mises à jour tardives). Filtrer après
+        réception garantit un comportement cohérent quelle que soit l'historique
+        de la soumission.
+        """
         log.info("Début ingestion arXiv — %d topic(s)", len(self.settings.sources.arXiv_topics))
+        min_year = self.settings.sources.arxiv_min_year
         results = []
         for topic in self.settings.sources.arXiv_topics:
             for raw in self.fetch_articles(topic.category, topic.keywords):
-                results.append(self.normalize_article(raw))
+                article = self.normalize_article(raw)
+                date = article.get("published_date")
+                if date is not None and date.year < min_year:
+                    log.debug(
+                        "Article ignoré (année %d < %d) : %s", date.year, min_year, article["url"]
+                    )
+                    continue
+                results.append(article)
+        log.info("  → %d articles retenus (filtre année ≥ %d)", len(results), min_year)
         return results
 
 

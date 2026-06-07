@@ -5,32 +5,53 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class ArXivTopic(BaseModel):
+    """
+    Représente un sujet de recherche à surveiller sur arXiv.
+    """
+
     category: str
     keywords: list[str]
 
+
 class WatchedRepo(BaseModel):
+    """
+    Représente un dépôt GitHub à surveiller pour les nouvelles releases.
+    """
+
     owner: str
     repo: str
     topic: str | None = None
 
 
 class Sources(BaseSettings):
+    """
+    Configuration des sources d'information à surveiller (arXiv, GitHub, etc.).
+    """
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     news_api_key: str = ""
     news_api_base_url: str = "https://newsapi.org/v2"
 
+    # ====== arXiv ======
     arXiv_base_url: str = "https://export.arxiv.org/api/query"
     arXiv_topics: list[ArXivTopic] = Field(default_factory=list)
-    arxiv_max_results: int
-    arxiv_min_year: int
+    arxiv_max_results: int = 25
+    arxiv_min_year: int = 2025
 
+    # ====== GitHub ======
     github_api_url: str = "https://api.github.com"
     github_releases_token: str = ""
     github_watched_repos: list[WatchedRepo] = Field(default_factory=list)
 
 
 class Settings(BaseSettings):
+    """
+    Configuration globale de l'application.
+     - Chargée à partir du fichier .env (grâce à pydantic-settings).
+     - Accessible partout via la fonction get_settings().
+    """
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_env: str = "development"
