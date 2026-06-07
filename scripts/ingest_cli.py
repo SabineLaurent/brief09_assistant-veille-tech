@@ -6,7 +6,7 @@ import typer
 
 from app.ingest.cleaning import chunk
 from app.rag.chroma_client import get_collection
-from app.rag.retrieval import embed
+from app.rag.retrieval import get_embedder
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +36,8 @@ def _index_articles(articles: list[dict]) -> int:
             }
 
             ids = [f"{article_id}::{i}" for i in range(len(chunks))]
-            embeddings = [embed(c) for c in chunks]
+            vecs = get_embedder().encode(chunks, normalize_embeddings=True)
+            embeddings = [v.tolist() for v in vecs]
             metadatas = [metadata] * len(chunks)
 
             collection.upsert(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
