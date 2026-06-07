@@ -13,5 +13,6 @@ def init_db(db_path: str | None = None) -> None:
     with sqlite3.connect(path) as conn:
         conn.executescript(_SQL)
 
+
 if __name__ == "__main__":
     init_db()

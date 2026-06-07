@@ -57,9 +57,7 @@ def _format_context(retrieved: list[dict[str, Any]], fresh: list[dict[str, Any]]
     return "\n\n".join(parts) if parts else "(aucune source disponible)"
 
 
-def _build_cards(
-    retrieved: list[dict[str, Any]], fresh: list[dict[str, Any]]
-) -> list[ArticleCard]:
+def _build_cards(retrieved: list[dict[str, Any]], fresh: list[dict[str, Any]]) -> list[ArticleCard]:
     cards: list[ArticleCard] = []
     for chunk in retrieved:
         meta = chunk.get("metadata") or {}
