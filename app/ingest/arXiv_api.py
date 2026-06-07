@@ -7,8 +7,20 @@ from typing import Any
 
 import httpx
 from lxml import etree
+from pydantic import BaseModel
 
 from app.config import Settings, get_settings
+
+
+class ArXivArticle(BaseModel):
+    reference: str
+    title: str
+    source: str
+    published_date: datetime | None
+    content: str
+    url: str
+    tags: list[str]
+    authors: list[str]
 
 
 log = logging.getLogger(__name__)
@@ -34,25 +46,36 @@ class ArXivApiIngester:
         """
         Interroge l'API arXiv pour une catégorie et une liste de mots-clés (combinés en OR).
         """
+        # ======= Construction de la requête de recherche ========
+        # ex. "cat:cs.AI AND (all:deep learning OR all:transformer)"
         kw_query = " OR ".join(f"all:{kw}" for kw in keywords)
         log.info("[arXiv] topic %s — %d keywords", category, len(keywords))
+
         params = {
             "search_query": f"cat:{category} AND ({kw_query})",
+            "sortBy": "lastUpdatedDate",
+            "sortOrder": "descending",
             "start": 0,
             "max_results": self.settings.sources.arxiv_max_results,
         }
+
+        # ======= Requête HTTP vers arXiv ========
         response = httpx.get(
             self.settings.sources.arXiv_base_url,
             params=params,
             timeout=15.0,
             follow_redirects=True,
         )
+
         response.raise_for_status()
         log.debug("HTTP %s — %d octets reçus", response.status_code, len(response.content))
 
+        # ======= Parsing du XML ========
         raw_entries = self._xml_to_raw_entries(response.content)
         log.info("  → %d articles récupérés", len(raw_entries))
+
         return [self._entry_to_dict(entry, category, keywords) for entry in raw_entries]
+
 
     def _xml_to_raw_entries(self, content: bytes) -> list[etree._Element]:
         """
@@ -60,6 +83,7 @@ class ArXivApiIngester:
         """
         root = etree.fromstring(content)
         return root.findall(_tag("entry"))
+
 
     def _entry_to_dict(
         self, entry: etree._Element, category: str, keywords: list[str]
@@ -69,6 +93,7 @@ class ArXivApiIngester:
         """
 
         def text(name: str) -> str:
+            
             el = entry.find(_tag(name))
             return el.text.strip() if el is not None and el.text else ""
 
@@ -95,7 +120,8 @@ class ArXivApiIngester:
             "keywords": keywords,
         }
 
-    def normalize_article(self, article: dict[str, Any]) -> dict[str, Any]:
+
+    def normalize_article(self, article: dict[str, Any]) -> ArXivArticle:
         """
         Normalise les données d'un article arXiv.
          - Extrait l'ID arXiv de l'URL (ex: "2411.18583v1")
@@ -107,22 +133,23 @@ class ArXivApiIngester:
         published = article.get("published", "")
         date = datetime.fromisoformat(published.replace("Z", "+00:00")) if published else None
 
-        return {
-            "reference": arxiv_id,
-            "title": article["title"],
-            "source": "arXiv",
-            "published_date": date,
-            "content": article["summary"],
-            "url": article["link"],
-            "tags": [article["category"]] + article["keywords"],
-            "authors": article["authors"],
-        }
+        return ArXivArticle(
+            reference=arxiv_id,
+            title=article["title"],
+            source="arXiv",
+            published_date=date,
+            content=article["summary"],
+            url=article["link"],
+            tags=[article["category"]] + article["keywords"],
+            authors=article["authors"],
+        )
 
-    def run(self) -> list[dict[str, Any]]:
+    def run(self) -> list[ArXivArticle]:
         """
         Récupère et normalise les articles arXiv pour tous les topics configurés,
         en excluant ceux publiés avant `arxiv_min_year`.
 
+        Remarque sur le filtrage par date :
         Le filtre est appliqué ici plutôt que dans la requête API car l'endpoint
         arXiv Atom n'expose pas de paramètre de filtre par date de publication.
         Le paramètre `submittedDate` filtre sur la date de dépôt initiale, qui peut
@@ -136,10 +163,12 @@ class ArXivApiIngester:
         for topic in self.settings.sources.arXiv_topics:
             for raw in self.fetch_articles(topic.category, topic.keywords):
                 article = self.normalize_article(raw)
-                date = article.get("published_date")
-                if date is not None and date.year < min_year:
+                if article.published_date is not None and article.published_date.year < min_year:
                     log.debug(
-                        "Article ignoré (année %d < %d) : %s", date.year, min_year, article["url"]
+                        "Article ignoré (année %d < %d) : %s",
+                        article.published_date.year,
+                        min_year,
+                        article.url,
                     )
                     continue
                 results.append(article)
@@ -162,6 +191,6 @@ if __name__ == "__main__":
     ingester = ArXivApiIngester()
     articles = ingester.run()
     for article in articles:
-        upsert_article(article)
+        upsert_article(article.model_dump())
     log.info("  → %d sauvegardés en base", len(articles))
     log.info("Ingestion arXiv terminée.")
