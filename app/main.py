@@ -2,7 +2,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.chat import handle_chat
+from app.data.migrate import init_db
 from app.schemas import ChatRequest, ChatResponse, Topic
+
+init_db()
 
 POPULAR_TOPICS: list[Topic] = [
     Topic(slug="python", label="Python"),

@@ -25,6 +25,9 @@ lint:
 typecheck:
 	uv run mypy app
 
+migrate:
+	uv run python -m app.data.migrate
+
 ingest:
 	uv run python scripts/ingest_cli.py
 

@@ -126,6 +126,7 @@ chunking, etc.) : c'est la spec exécutable à suivre pour l'implémentation.
 - KISS: "Keep It Simple, Stupid"
 - NTUI: "Never Trust User Inputs"
 
+Je suis novice en python. J'ai besoin de consignes et explications claires pour comprendre ce que je code et d'une progression pas à pas.
 Pour un premier jet, on peut coder en spaghetti code.
 Mais ensuite, tu proposes étape par étape des modifications pour respecter les principes précédemment cités.
 

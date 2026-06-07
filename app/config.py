@@ -4,6 +4,10 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class ArXivTopic(BaseModel):
+    category: str
+    keywords: list[str]
+
 class WatchedRepo(BaseModel):
     owner: str
     repo: str
@@ -16,9 +20,12 @@ class Sources(BaseSettings):
     news_api_key: str = ""
     news_api_base_url: str = "https://newsapi.org/v2"
 
+    arXiv_base_url: str = "https://export.arxiv.org/api/query"
+    arXiv_topics: list[ArXivTopic] = Field(default_factory=list)
+
     github_api_url: str = "https://api.github.com"
     github_releases_token: str = ""
-    watched_repos: list[WatchedRepo] = Field(default_factory=list)
+    github_watched_repos: list[WatchedRepo] = Field(default_factory=list)
 
 
 class Settings(BaseSettings):
@@ -36,7 +43,7 @@ class Settings(BaseSettings):
     embedding_model: str = "intfloat/multilingual-e5-small"
 
     sources: Sources = Field(default_factory=Sources)
-    ingest_db_path: str = "data/ingest.db"
+    ingest_db_path: str = "ingest.db"
 
     backend_port: int = 8000
     frontend_port: int = 3000
