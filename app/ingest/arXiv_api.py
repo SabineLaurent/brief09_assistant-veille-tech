@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -21,6 +22,25 @@ class ArXivArticle(BaseModel):
     url: str
     tags: list[str]
     authors: list[str]
+
+    def to_chroma_metadata(self) -> dict[str, str]:
+        """Sérialise les métadonnées dans un format compatible Chroma (str uniquement)."""
+        return {
+            "title": self.title,
+            "source": self.source,
+            "date": self.published_date.isoformat() if self.published_date else "",
+            "url": self.url,
+            "tags": "|".join(self.tags),
+            "authors": "|".join(self.authors),
+        }
+
+    def to_indexable(self) -> dict[str, Any]:
+        """Prépare le dict attendu par index_articles() : id, content, metadata."""
+        return {
+            "id": self.reference,
+            "content": self.content,
+            "metadata": self.to_chroma_metadata(),
+        }
 
 
 log = logging.getLogger(__name__)
@@ -182,15 +202,21 @@ if __name__ == "__main__":
      - Récupère les articles correspondant aux topics configurés
      - Normalise les données
      - Sauvegarde en base via la fonction upsert_article (idempotent)
+     - Exporte les articles de cette session dans un CSV horodaté
      - Affiche un résumé dans la console
      - À terme, ce script sera remplacé par une tâche planifiée (cron)
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    from app.data.articles_repo import upsert_article
+    from app.data.articles_recorder import count_articles, upsert_article
+    from app.data.csv_exporter import export_to_csv
 
     ingester = ArXivApiIngester()
     articles = ingester.run()
-    for article in articles:
-        upsert_article(article.model_dump())
-    log.info("  → %d sauvegardés en base", len(articles))
+
+    inserted = sum(upsert_article(a.model_dump()) for a in articles)
+    csv_path = export_to_csv([a.model_dump() for a in articles], source_name="arxiv")
+
+    log.info("  → %d nouveaux articles ajoutés à la base de données", inserted)
+    log.info("  → Log des entrées de cette session dans le csv : %s", csv_path)
     log.info("Ingestion arXiv terminée.")
+    log.info("  → La base de données de veille contient maintenant %d entrées", count_articles())

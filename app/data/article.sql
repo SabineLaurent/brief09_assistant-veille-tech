@@ -1,11 +1,11 @@
 CREATE TABLE IF NOT EXISTS article (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     reference      TEXT UNIQUE NOT NULL,
-    title          TEXT,
-    source         TEXT,
+    title          TEXT NOT NULL,
+    source         TEXT NOT NULL,
     published_date TEXT,
-    content        TEXT,
-    url            TEXT,
-    tags           TEXT,
-    authors        TEXT
+    content        TEXT NOT NULL,
+    url            TEXT NOT NULL,
+    tags           TEXT NOT NULL,
+    authors        TEXT NOT NULL
 );

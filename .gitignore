@@ -45,6 +45,7 @@ out/
 *.sqlite
 *.db
 chroma-data/
+logs/
 
 # Agents and tools
 .claude/
