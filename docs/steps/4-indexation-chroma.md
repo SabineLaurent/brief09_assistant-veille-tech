@@ -115,6 +115,19 @@ via `"|".join(json.loads(article["tags"]))`, cohérent avec `arXiv_api.to_chroma
 | `url`            | `url`      | aucune                    |
 | `tags`           | `tags`     | `json.loads` → `"\|".join"` |
 
+### Granularité d'indexation : article par article ou en batch ?
+
+`index_articles()` indexe **article par article** (boucle `for article in articles`),
+mais les chunks d'un même article sont envoyés en **un seul appel `upsert`**.
+
+```
+Article A → [chunk 0, chunk 1, chunk 2] → 1 upsert (3 chunks d'un coup)
+Article B → [chunk 0, chunk 1]          → 1 upsert (2 chunks d'un coup)
+Article C → [chunk 0]                   → 1 upsert (1 chunk)
+```
+
+Ce n'est pas "un chunk à la fois" — c'est "un article à la fois, tous ses chunks en bloc".
+
 ### Tolérance aux pannes
 
 Chaque article est traité dans un `try/except` individuel : un échec Chroma
@@ -156,6 +169,51 @@ def index_articles(articles: list[dict]) -> int:
 
     return total_chunks
 ```
+
+---
+
+## Approche manuelle vs bibliothèques disponibles
+
+### Chunking — remplacer par LangChain (déjà installé)
+
+`langchain>=0.3` est dans les dépendances du projet et embarque
+`RecursiveCharacterTextSplitter`, le splitter standard en RAG :
+
+```python
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=200)
+chunks = splitter.split_text(text)  # → list[str]
+```
+
+Avantages sur le `re.split()` manuel :
+- découpe en cascade : d'abord `\n\n` (paragraphes), puis `\n`, puis `. `, puis ` `
+- overlap en caractères (plus prévisible qu'en nombre de phrases)
+- gère sans problème les blocs de code, listes, phrases très longues
+
+`MarkdownTextSplitter` (même API) est aussi disponible — optimisé pour le Markdown,
+ce que le pipeline produit via `markdownify`.
+
+**Recommandation : remplacer l'implémentation manuelle par `RecursiveCharacterTextSplitter`.**
+
+---
+
+### Indexation — garder l'approche manuelle
+
+LangChain propose un wrapper `Chroma` qui fait embed + upsert en une ligne :
+
+```python
+Chroma.from_documents(docs, embedding_function, collection_name="articles")
+```
+
+**Ne pas l'utiliser ici.** La raison : `embed()` dans `retrieval.py` utilise
+`normalize_embeddings=True`, ce qui est indispensable pour que la métrique
+`hnsw:space=cosine` soit cohérente entre l'ingestion et le retrieval.
+Le wrapper LangChain n'offre pas cette garantie — risque de dégradation silencieuse
+des résultats de recherche.
+
+Règle à retenir : **même modèle, même normalisation pour indexer et pour chercher.**
+L'appel `embed()` + `collection.upsert()` manuels est donc la bonne approche.
 
 ---
 

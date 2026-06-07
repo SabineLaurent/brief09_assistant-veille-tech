@@ -1,4 +1,4 @@
-.PHONY: up down logs install test fmt lint typecheck ingest chat-test
+.PHONY: up down logs install test fmt lint typecheck ingest chat-test chromadelete chromareset
 
 install:
 	uv sync
@@ -30,6 +30,20 @@ migrate:
 
 ingest:
 	uv run python scripts/ingest_cli.py
+
+chromareset:
+	uv run python -c "\
+from app.rag.chroma_client import get_client; \
+from app.config import get_settings; \
+s = get_settings(); \
+c = get_client(); \
+c.delete_collection(s.chroma_collection); \
+print('Collection', s.chroma_collection, 'supprimée — sera recréée au prochain appel.')"
+
+chromadelete:
+	make down
+	rm -rf .docker-data/chroma
+	make up
 
 chat-test:
 	curl -s -X POST http://localhost:8000/chat \
