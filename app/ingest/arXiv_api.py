@@ -38,7 +38,7 @@ class ArXivApiIngester:
         params = {
             "search_query": f"cat:{category} AND ({kw_query})",
             "start": 0,
-            "max_results": 25,
+            "max_results": self.settings.sources.arxiv_max_results,
         }
         response = httpx.get(
             self.settings.sources.arXiv_base_url,

@@ -22,6 +22,8 @@ class Sources(BaseSettings):
 
     arXiv_base_url: str = "https://export.arxiv.org/api/query"
     arXiv_topics: list[ArXivTopic] = Field(default_factory=list)
+    arxiv_max_results: int
+    arxiv_min_year: int
 
     github_api_url: str = "https://api.github.com"
     github_releases_token: str = ""
