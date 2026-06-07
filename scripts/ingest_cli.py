@@ -1,52 +1,32 @@
 from __future__ import annotations
 
-import logging
-
 import typer
 
-from app.ingest.cleaning import chunk
-from app.rag.chroma_client import get_collection
-from app.rag.retrieval import get_embedder
-
-log = logging.getLogger(__name__)
+from app.data.article_store import count_articles, read_ingested_articles, upsert_article
+from app.indexing.indexer import index_articles
+from app.ingest.arXiv_api import ArXivApiIngester
 
 app = typer.Typer(help="Ingestion CLI for the veille tech index.")
 
 
-def _index_articles(articles: list[dict]) -> int:
-    collection = get_collection()
-    total_chunks = 0
+@app.command()
+def fetch() -> None:
+    """Récupère les articles arXiv et les sauvegarde en base (SQLite)."""
+    articles = ArXivApiIngester().run()
+    inserted = sum(upsert_article(a.model_dump()) for a in articles)
+    typer.echo(f"{len(articles)} articles récupérés, {inserted} nouveaux insérés.")
+    typer.echo(f"Base : {count_articles()} articles au total.")
 
-    for article in articles:
-        try:
-            chunks = chunk(article.get("content", ""))
-            if not chunks:
-                continue
 
-            article_id = article["id"]
-            tags = article.get("tags", [])
-            tags_str = ", ".join(tags) if isinstance(tags, list) else str(tags)
-
-            metadata = {
-                "title": article.get("title", ""),
-                "source": article.get("source", ""),
-                "date": article.get("date") or "",
-                "url": article.get("url", ""),
-                "tags": tags_str,
-            }
-
-            ids = [f"{article_id}::{i}" for i in range(len(chunks))]
-            vecs = get_embedder().encode(chunks, normalize_embeddings=True)
-            embeddings = [v.tolist() for v in vecs]
-            metadatas = [metadata] * len(chunks)
-
-            collection.upsert(ids=ids, documents=chunks, embeddings=embeddings, metadatas=metadatas)
-            total_chunks += len(chunks)
-
-        except Exception:
-            log.warning("Échec indexation article %s", article.get("id", "?"))
-
-    return total_chunks
+@app.command()
+def index() -> None:
+    """Indexe dans Chroma les articles SQLite avec status='ingested'."""
+    articles = read_ingested_articles()
+    if not articles:
+        typer.echo("Aucun article à indexer (status='ingested' introuvable).")
+        raise typer.Exit()
+    total_chunks = index_articles(articles)
+    typer.echo(f"{len(articles)} articles indexés → {total_chunks} chunks dans Chroma.")
 
 
 @app.command()

@@ -1,4 +1,4 @@
-.PHONY: up down logs install test fmt lint typecheck ingest chat-test chromadelete chromareset
+.PHONY: up down logs install test fmt lint typecheck ingest ingest-fetch ingest-index chat-test chromadelete chromareset
 
 install:
 	uv sync
@@ -28,8 +28,13 @@ typecheck:
 migrate:
 	uv run python -m app.data.migrate
 
-ingest:
-	uv run python scripts/ingest_cli.py
+ingest: ingest-fetch ingest-index
+
+ingest-fetch:
+	PYTHONPATH=. uv run python scripts/ingest_cli.py fetch
+
+ingest-index:
+	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python scripts/ingest_cli.py index
 
 chromareset:
 	uv run python -c "\
