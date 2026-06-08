@@ -15,3 +15,7 @@ GITHUB_API_URL=https://api.github.com
 GITHUB_RELEASES_TOKEN=
 WATCHED_REPOS=[{"owner":"exemple-owner1","repo":"exemple-repo1"},{"owner":"exemple-owner2","repo":"exemple-repo2"}]
 ```
+
+## Web scraping - TLDR.tech
+
+Avec des préfiltres par thématiques déjà en place sur le site.

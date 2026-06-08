@@ -13,3 +13,6 @@
 Où en est-on?
 --> @docs/steps/1-get-arXiv-articles.md
 --> @docs/steps/2-indexation-decisions.md
+--> etc
+
+2. Concevoir et écrire le scraping de 2 à 3 sources tech (app/ingest/scraper.py ; 1 blog technique, 1 changelog produit, 1 page de doc / annonce).
