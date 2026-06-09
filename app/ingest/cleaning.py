@@ -19,7 +19,13 @@ def clean_html_to_markdown(html: str) -> str:
 
 def dedupe(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Supprimer les articles en double en fonction de leur URL.
+    Supprimer les articles en double.
+    
+    - en fonction de leur URL.
+
+    TODO:
+    - à optimiser pour le cas:
+     -->  où un même article de newsletter est publié sur plusieurs sites, en utilisant un hash du contenu de l'article plutôt que l'URL.
     """
     seen: set[str] = set()
     result = []

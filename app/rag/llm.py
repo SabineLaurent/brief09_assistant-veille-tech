@@ -32,7 +32,7 @@ def get_llm() -> AzureAIChatCompletionsModel | None:
     return AzureAIChatCompletionsModel(
         endpoint=settings.azure_ai_inference_endpoint,
         credential=settings.azure_ai_inference_api_key,
-        model=settings.azure_ai_inference_model,
+        model_name=settings.azure_ai_inference_model,
         temperature=0.2,
     )
 
