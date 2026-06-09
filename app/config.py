@@ -39,6 +39,9 @@ class Sources(BaseSettings):
     arxiv_max_results: int = 25
     arxiv_min_year: int = 2025
 
+    # ====== TLDR.tech ======
+    tldr_base_url: str = "https://tldr.tech"
+
     # ====== GitHub ======
     github_api_url: str = "https://api.github.com"
     github_releases_token: str = ""
