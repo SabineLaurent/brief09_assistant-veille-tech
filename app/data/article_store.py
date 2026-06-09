@@ -14,8 +14,8 @@ def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
         cursor = conn.execute(
             """
             INSERT OR IGNORE INTO article
-                (reference, title, source, published_date, content, url, tags, authors)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (reference, title, source, published_date, content, url, tags, authors, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 article["reference"],
@@ -26,6 +26,7 @@ def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
                 article["url"],
                 json.dumps(article["tags"]),
                 json.dumps(article["authors"]),
+                article["ingested_at"].isoformat() if article["ingested_at"] else None,
             ),
         )
         return cursor.rowcount == 1
@@ -40,13 +41,21 @@ def count_articles(db_path: str | None = None) -> int:
 
 
 def update_article_status(reference: str, status: str, db_path: str | None = None) -> None:
-    """Met à jour le status d'un article ('ingested', 'indexed', 'error')."""
+    """Met à jour le status d'un article ('ingested', 'indexed', 'error').
+    Renseigne indexed_at automatiquement quand status='indexed'.
+    """
     path = db_path or get_settings().ingest_db_path
     with sqlite3.connect(path) as conn:
-        conn.execute(
-            "UPDATE article SET status = ? WHERE reference = ?",
-            (status, reference),
-        )
+        if status == "indexed":
+            conn.execute(
+                "UPDATE article SET status = ?, indexed_at = CURRENT_TIMESTAMP WHERE reference = ?",
+                (status, reference),
+            )
+        else:
+            conn.execute(
+                "UPDATE article SET status = ? WHERE reference = ?",
+                (status, reference),
+            )
 
 
 def read_ingested_articles(db_path: str | None = None) -> list[dict]:
