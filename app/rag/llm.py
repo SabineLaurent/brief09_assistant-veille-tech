@@ -32,7 +32,10 @@ def get_llm() -> AzureAIChatCompletionsModel | None:
     return AzureAIChatCompletionsModel(
         endpoint=settings.azure_ai_inference_endpoint,
         credential=settings.azure_ai_inference_api_key,
-        model_name=settings.azure_ai_inference_model,
+        # `model=` (alias pydantic) et pas `model_name=` : le kwarg model_name est
+        # ignoré par le constructeur (champ aliasé), le client part alors sans nom
+        # de modèle et Azure répond NoModelName.
+        model=settings.azure_ai_inference_model,
         temperature=0.2,
     )
 
@@ -149,10 +152,16 @@ async def compose_answer(
 
 
 def _extract_answer(raw: str) -> str:
+    text = raw.strip()
+    # Le LLM enveloppe souvent sa réponse dans des barrières Markdown ```json ... ```
+    # malgré la consigne "JSON strict" — on les retire avant de parser.
+    if text.startswith("```"):
+        text = text.removeprefix("```json").removeprefix("```").strip()
+        text = text.removesuffix("```").strip()
     try:
-        data = json.loads(raw)
+        data = json.loads(text)
         if isinstance(data, dict) and "answer" in data:
             return str(data["answer"])
     except json.JSONDecodeError:
         pass
-    return raw.strip()
+    return text
