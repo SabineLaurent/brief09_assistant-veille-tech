@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import date
+
 import typer
 
 from app.data.article_store import count_articles, read_ingested_articles, upsert_article
 from app.indexing.indexer import index_articles
 from app.ingest.arXiv_api import ArXivApiIngester
+from app.ingest.tldr_scraper import TldrScraper
 
 app = typer.Typer(help="Ingestion CLI for the veille tech index.")
 
@@ -27,6 +30,21 @@ def index() -> None:
         raise typer.Exit()
     total_chunks = index_articles(articles)
     typer.echo(f"{len(articles)} articles indexés → {total_chunks} chunks dans Chroma.")
+
+
+@app.command()
+def tldr(
+    editions: list[str] = typer.Option(["tech", "webdev", "ai"], "--edition", "-e", help="TLDR edition (tech, webdev, ai…)"),
+    scrape_date: str = typer.Option(str(date.today()), "--date", "-d", help="Date de l'édition (YYYY-MM-DD)"),
+) -> None:
+    """Scrappe les newsletters TLDR et sauvegarde en base (SQLite)."""
+    scraper = TldrScraper()
+    urls = scraper.build_urls(editions, scrape_date)
+    typer.echo(f"Scraping {len(urls)} URL(s) : {urls}")
+    articles = scraper.run(urls)
+    inserted = sum(upsert_article(a.model_dump()) for a in articles)
+    typer.echo(f"{len(articles)} articles récupérés, {inserted} nouveaux insérés.")
+    typer.echo(f"Base : {count_articles()} articles au total.")
 
 
 @app.command()

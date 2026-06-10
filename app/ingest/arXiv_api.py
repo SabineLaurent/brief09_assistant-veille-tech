@@ -3,44 +3,16 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import httpx
 from lxml import etree
-from pydantic import BaseModel
-
 from app.config import Settings, get_settings
+from app.ingest.models import Article
 
 
-class ArXivArticle(BaseModel):
-    reference: str
-    title: str
-    source: str
-    published_date: datetime | None
-    content: str
-    url: str
-    tags: list[str]
-    authors: list[str]
-
-    def to_chroma_metadata(self) -> dict[str, str]:
-        """Sérialise les métadonnées dans un format compatible Chroma (str uniquement)."""
-        return {
-            "title": self.title,
-            "source": self.source,
-            "date": self.published_date.isoformat() if self.published_date else "",
-            "url": self.url,
-            "tags": "|".join(self.tags),
-            "authors": "|".join(self.authors),
-        }
-
-    def to_indexable(self) -> dict[str, Any]:
-        """Prépare le dict attendu par index_articles() : id, content, metadata."""
-        return {
-            "id": self.reference,
-            "content": self.content,
-            "metadata": self.to_chroma_metadata(),
-        }
+class ArXivArticle(Article):
+    pass
 
 
 log = logging.getLogger(__name__)
@@ -65,6 +37,23 @@ class ArXivApiIngester:
     def fetch_articles(self, category: str, keywords: list[str]) -> list[dict[str, Any]]:
         """
         Interroge l'API arXiv pour une catégorie et une liste de mots-clés (combinés en OR).
+
+        Entrée :
+            category : catégorie arXiv, ex. "cs.AI"
+            keywords : mots-clés de recherche, ex. ["deep learning", "transformer"]
+
+        Sortie :
+            liste de dicts bruts (un par <entry> du flux Atom), de la forme :
+                {
+                    "id": "http://arxiv.org/abs/2411.18583v1",
+                    "title": "...",
+                    "summary": "<abstract du papier>",
+                    "published": "2025-11-27T18:59:59Z",
+                    "authors": ["Alice Martin", "Bob Chen"],
+                    "link": "http://arxiv.org/abs/2411.18583v1",
+                    "category": "cs.AI",          # recopié depuis l'entrée
+                    "keywords": ["deep learning"]  # recopié depuis l'entrée
+                }
         """
         # ======= Construction de la requête de recherche ========
         # ex. "cat:cs.AI AND (all:deep learning OR all:transformer)"
@@ -100,6 +89,13 @@ class ArXivApiIngester:
     def _xml_to_raw_entries(self, content: bytes) -> list[etree._Element]:
         """
         Parse le XML Atom renvoyé par arXiv et retourne une liste d'éléments <entry>.
+
+        Entrée :
+            content : corps brut de la réponse HTTP (bytes), un document XML Atom
+            dont la racine <feed> contient un élément <entry> par article.
+
+        Sortie :
+            liste d'éléments lxml <entry> (vide si le flux ne contient aucun article).
         """
         root = etree.fromstring(content)
         return root.findall(_tag("entry"))
@@ -110,6 +106,17 @@ class ArXivApiIngester:
     ) -> dict[str, Any]:
         """
         Convertit un élément <entry> en dictionnaire.
+
+        Entrée :
+            entry : élément lxml <entry> du flux Atom arXiv
+            category : catégorie arXiv de la requête d'origine, ex. "cs.AI"
+            keywords : mots-clés de la requête d'origine, ex. ["deep learning"]
+
+        Sortie :
+            dict brut {id, title, summary, published, authors, link, category,
+            keywords} — voir fetch_articles pour un exemple complet. Les champs
+            texte absents du XML valent "" ; authors/link sont extraits des
+            sous-éléments <author><name> et <link rel="alternate">.
         """
 
         def text(name: str) -> str:
@@ -147,6 +154,17 @@ class ArXivApiIngester:
          - Extrait l'ID arXiv de l'URL (ex: "2411.18583v1")
          - Convertit la date de publication en objet datetime
          - Construit une liste de tags à partir de la catégorie + les mots-clés
+
+        Entrée :
+            article : dict brut produit par _entry_to_dict (voir fetch_articles
+            pour la forme exacte).
+
+        Sortie :
+            ArXivArticle de la forme :
+                reference="2411.18583v1", title="...", source="arXiv",
+                published_date=datetime|None, content="<abstract>",
+                url="http://arxiv.org/abs/2411.18583v1",
+                tags=["cs.AI", "deep learning", ...], authors=["Alice Martin", ...]
         """
         arxiv_id = article["id"].split("/abs/")[-1]  # ex: "2411.18583v1"
 
@@ -168,6 +186,14 @@ class ArXivApiIngester:
         """
         Récupère et normalise les articles arXiv pour tous les topics configurés,
         en excluant ceux publiés avant `arxiv_min_year`.
+
+        Entrée :
+            aucune — les topics viennent de la config
+            (settings.sources.arXiv_topics, liste d'ArXivTopic {category, keywords}).
+
+        Sortie :
+            liste d'ArXivArticle normalisés (voir normalize_article pour la forme),
+            tous topics confondus, filtrés par année de publication.
 
         Remarque sur le filtrage par date :
         Le filtre est appliqué ici plutôt que dans la requête API car l'endpoint

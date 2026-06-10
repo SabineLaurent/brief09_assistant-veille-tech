@@ -5,44 +5,19 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup, Tag
-from pydantic import BaseModel
 
 from app.config import get_settings
 from app.ingest.cleaning import clean_html_to_markdown
+from app.ingest.models import Article
 
 log = logging.getLogger(__name__)
 
 
-class TldrArticle(BaseModel):
-    reference: str
-    title: str
-    source: str
-    published_date: datetime | None
-    content: str
-    url: str
-    tags: list[str]
-    authors: list[str]
-
-    def to_chroma_metadata(self) -> dict[str, str]:
-        return {
-            "title": self.title,
-            "source": self.source,
-            "date": self.published_date.isoformat() if self.published_date else "",
-            "url": self.url,
-            "tags": "|".join(self.tags),
-            "authors": "|".join(self.authors),
-        }
-
-    def to_indexable(self) -> dict[str, Any]:
-        return {
-            "id": self.reference,
-            "content": self.content,
-            "metadata": self.to_chroma_metadata(),
-        }
+class TldrArticle(Article):
+    pass
 
 
 @dataclass
@@ -52,9 +27,35 @@ class TldrScraper:
     timeout: float = 10.0
 
     def build_urls(self, editions: list[str], date: str) -> list[str]:
+        """
+        Construit les URLs des newsletters TLDR à scraper.
+
+        Entrée :
+            editions : noms d'éditions TLDR, ex. ["tech", "webdev", "ai"]
+            date : date de l'édition au format "YYYY-MM-DD", ex. "2026-06-10"
+
+        Sortie :
+            liste d'URLs, une par édition,
+            ex. ["https://tldr.tech/tech/2026-06-10", "https://tldr.tech/ai/2026-06-10"]
+        """
         return [f"{self.base_url}/{edition}/{date}" for edition in editions]
 
     def run(self, urls: list[str]) -> list[TldrArticle]:
+        """
+        Télécharge et parse chaque newsletter ; une URL en échec est loggée et ignorée.
+
+        Entrée :
+            urls : URLs de newsletters TLDR (telles que produites par build_urls),
+            ex. ["https://tldr.tech/ai/2026-06-10"]
+
+        Sortie :
+            liste de TldrArticle (toutes éditions confondues), chacun de la forme :
+                reference="<sha1 de l'url sans tracking>", title="...",
+                source="tldr.tech", published_date=datetime|None,
+                content="<résumé en Markdown>", url="https://...",
+                tags=["<edition>", "<catégorie>"], authors=[]
+            Liste vide si toutes les URLs ont échoué.
+        """
         articles: list[TldrArticle] = []
         with httpx.Client(
             headers={"User-Agent": self.user_agent},
@@ -74,16 +75,39 @@ class TldrScraper:
 
 
 def _extract_date(url: str) -> str:
+    """
+    Entrée : URL de newsletter, ex. "https://tldr.tech/ai/2026-06-10"
+    Sortie : la date au format "YYYY-MM-DD" ("" si introuvable).
+    """
     match = re.search(r"(\d{4}-\d{2}-\d{2})", url)
     return match.group(1) if match else ""
 
 
 def _extract_edition(url: str) -> str:
+    """
+    Entrée : URL de newsletter, ex. "https://tldr.tech/ai/2026-06-10"
+    Sortie : l'édition (avant-dernier segment du chemin), ex. "ai" ("" si introuvable).
+    """
     parts = url.rstrip("/").split("/")
     return parts[-2] if len(parts) >= 2 else ""
 
 
 def _parse_newsletter(html: str, date: str, edition: str) -> list[TldrArticle]:
+    """
+    Parse le HTML d'une newsletter TLDR en articles normalisés.
+
+    Entrée :
+        html : page HTML complète de la newsletter (structure attendue :
+               <section> par catégorie, contenant des <article> avec un lien
+               a.font-bold>h3 pour le titre et un div.newsletter-html pour le résumé)
+        date : date de l'édition au format "YYYY-MM-DD" (peut être "")
+        edition : nom de l'édition, ex. "ai"
+
+    Sortie :
+        liste de TldrArticle (voir TldrScraper.run pour la forme exacte).
+        Les articles sponsorisés ("(Sponsor)" dans le titre) et les entrées
+        sans lien sont exclus.
+    """
     soup = BeautifulSoup(html, "lxml")
     articles = []
 
@@ -138,6 +162,10 @@ def _parse_newsletter(html: str, date: str, edition: str) -> list[TldrArticle]:
 
 
 def _extract_category(section: Tag) -> str:
+    """
+    Entrée : un élément <section> de la newsletter (objet BeautifulSoup Tag).
+    Sortie : le texte du <header><h3>, ex. "Big Tech & Startups" ("" si absent).
+    """
     header = section.find("header")
     if not header:
         return ""
