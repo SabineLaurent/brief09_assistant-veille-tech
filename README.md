@@ -75,7 +75,11 @@ make test                     # uv run pytest
 Ingestion (CLI) :
 
 ```bash
-make ingest                   # passe par scripts/ingest_cli.py
+make ingest                   # sources (arXiv, TLDR) → SQLite (= arxiv-ingest + tldr-ingest)
+make index                    # SQLite → Chroma (chunk + embedding)
+make pipeline-e2e             # bout en bout : ingest puis index
+make arxiv                    # bout en bout arXiv seul (arxiv-ingest + index)
+make tldr                     # bout en bout TLDR seul (tldr-ingest + index)
 ```
 
 ## Sources potentielles

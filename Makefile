@@ -1,4 +1,4 @@
-.PHONY: up down logs install test fmt lint typecheck ingest ingest-fetch ingest-index chat-test chromadelete chromareset
+.PHONY: up down logs install test fmt lint typecheck pipeline-e2e ingest arxiv-ingest tldr-ingest arxiv tldr index chat-test chromadelete chromareset
 
 install:
 	uv sync
@@ -28,13 +28,22 @@ typecheck:
 migrate:
 	uv run python -m app.data.migrate
 
-ingest: ingest-fetch ingest-index
+pipeline-e2e: ingest index
 
-ingest-fetch:
+ingest: arxiv-ingest tldr-ingest
+
+arxiv-ingest:
 	PYTHONPATH=. uv run python scripts/ingest_cli.py fetch
 
-ingest-index:
+tldr-ingest:
+	PYTHONPATH=. uv run python scripts/ingest_cli.py tldr
+
+index:
 	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python scripts/ingest_cli.py index
+
+arxiv: arxiv-ingest index
+
+tldr: tldr-ingest index
 
 chromareset:
 	uv run python -c "\

@@ -19,7 +19,11 @@ make test         # uv run pytest -v
 make fmt          # ruff format + ruff check --fix
 make lint         # ruff check
 make typecheck    # mypy app
-make ingest       # uv run python scripts/ingest_cli.py
+make ingest       # ingestion arXiv + TLDR → SQLite (= arxiv-ingest + tldr-ingest)
+make index        # indexation SQLite → Chroma (chunk + embedding)
+make pipeline-e2e # bout en bout : ingest puis index
+make arxiv        # bout en bout arXiv seul (arxiv-ingest + index)
+make tldr         # bout en bout TLDR seul (tldr-ingest + index)
 make chat-test    # curl POST /chat avec une question d'exemple
 ```
 
