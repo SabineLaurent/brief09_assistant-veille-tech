@@ -46,7 +46,7 @@ arxiv: arxiv-ingest index
 tldr: tldr-ingest index
 
 chromareset:
-	uv run python -c "\
+	CHROMA_URL=http://localhost:8002 uv run python -c "\
 from app.rag.chroma_client import get_client; \
 from app.config import get_settings; \
 s = get_settings(); \
