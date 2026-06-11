@@ -2,9 +2,18 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 from typing import Any
 
 from app.config import get_settings
+
+# Colonnes de date autorisées comme watermark. Un nom de colonne ne peut PAS être
+# passé en paramètre SQL (`?` ne vaut que pour des valeurs, pas des identifiants) :
+# on le valide donc contre cette liste blanche pour écarter tout risque d'injection.
+#   - published_date : watermark TLDR (date d'édition)
+#   - updated_date   : watermark arXiv (date <updated>) — colonne ajoutée à l'étape
+#                      arXiv, cf. docs/steps/11-ingestion-incrementale-watermark.md
+_WATERMARK_FIELDS = ("published_date", "updated_date")
 
 
 def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
@@ -38,6 +47,43 @@ def count_articles(db_path: str | None = None) -> int:
     with sqlite3.connect(path) as conn:
         row = conn.execute("SELECT COUNT(*) FROM article").fetchone()
         return row[0]
+
+
+def get_watermark(
+    source: str, date_field: str, db_path: str | None = None
+) -> datetime | None:
+    """Retourne la date la plus récente connue en base pour une source — le « high
+    watermark ». Sert à borner la prochaine ingestion (ne récupérer que ce qui est
+    plus récent). Voir docs/steps/11-ingestion-incrementale-watermark.md.
+
+    Entrée :
+        source : valeur de la colonne `source`, ex. "tldr.tech" ou "arXiv".
+        date_field : colonne de date à comparer — "published_date" (TLDR) ou
+            "updated_date" (arXiv). Validée contre _WATERMARK_FIELDS.
+        db_path : chemin de la base (défaut : settings.ingest_db_path).
+
+    Sortie :
+        datetime du plus récent article de cette source, ou None si la source n'a
+        encore aucun article (cas « base vide » → l'appelant choisit une date de
+        départ par défaut).
+
+    MAX() sur le TEXT ISO 8601 suffit : ce format se trie alphabétiquement dans le
+    même ordre que chronologiquement.
+    """
+    if date_field not in _WATERMARK_FIELDS:
+        raise ValueError(
+            f"date_field invalide : {date_field!r} (attendu : {_WATERMARK_FIELDS})"
+        )
+
+    path = db_path or get_settings().ingest_db_path
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            f"SELECT MAX({date_field}) FROM article WHERE source = ?",
+            (source,),
+        ).fetchone()
+
+    value = row[0] if row else None
+    return datetime.fromisoformat(value) if value else None
 
 
 def update_article_status(reference: str, status: str, db_path: str | None = None) -> None:

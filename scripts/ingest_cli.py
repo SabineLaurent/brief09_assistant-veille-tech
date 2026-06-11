@@ -4,10 +4,16 @@ from datetime import date
 
 import typer
 
-from app.data.article_store import count_articles, read_ingested_articles, upsert_article
+from app.config import get_settings
+from app.data.article_store import (
+    count_articles,
+    get_watermark,
+    read_ingested_articles,
+    upsert_article,
+)
 from app.indexing.indexer import index_articles
 from app.ingest.arXiv_api import ArXivApiIngester
-from app.ingest.tldr_scraper import TldrScraper
+from app.ingest.tldr_scraper import TldrScraper, missing_edition_dates
 
 app = typer.Typer(help="Ingestion CLI for the veille tech index.")
 
@@ -35,12 +41,19 @@ def index() -> None:
 @app.command()
 def tldr(
     editions: list[str] = typer.Option(["tech", "webdev", "ai"], "--edition", "-e", help="TLDR edition (tech, webdev, ai…)"),
-    scrape_date: str = typer.Option(str(date.today()), "--date", "-d", help="Date de l'édition (YYYY-MM-DD)"),
 ) -> None:
-    """Scrappe les newsletters TLDR et sauvegarde en base (SQLite)."""
+    """Scrappe les newsletters TLDR manquantes (depuis la dernière ingestion) et sauvegarde en base (SQLite)."""
+    settings = get_settings()
+    watermark = get_watermark("tldr.tech", "published_date")
+    start_date = date.fromisoformat(settings.sources.tldr_start_date)
+    dates = missing_edition_dates(watermark, date.today(), start_date)
+    if not dates:
+        typer.echo("TLDR déjà à jour, rien à scraper.")
+        raise typer.Exit()
+
     scraper = TldrScraper()
-    urls = scraper.build_urls(editions, scrape_date)
-    typer.echo(f"Scraping {len(urls)} URL(s) : {urls}")
+    urls = [url for d in dates for url in scraper.build_urls(editions, d)]
+    typer.echo(f"{len(dates)} date(s) à scraper ({dates[0]} → {dates[-1]}), {len(urls)} URL(s).")
     articles = scraper.run(urls)
     inserted = sum(upsert_article(a.model_dump()) for a in articles)
     typer.echo(f"{len(articles)} articles récupérés, {inserted} nouveaux insérés.")

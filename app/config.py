@@ -41,6 +41,9 @@ class Sources(BaseSettings):
 
     # ====== TLDR.tech ======
     tldr_base_url: str = "https://tldr.tech"
+    # Cas « base vide » (aucune édition TLDR encore ingérée) : date de départ de
+    # l'ingestion. Sinon on repart de la dernière date connue + 1 jour.
+    tldr_start_date: str = "2026-06-01"
 
     # ====== GitHub ======
     github_api_url: str = "https://api.github.com"

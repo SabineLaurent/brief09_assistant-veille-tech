@@ -4,7 +4,7 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import httpx
 from bs4 import BeautifulSoup, Tag
@@ -72,6 +72,32 @@ class TldrScraper:
                 except Exception as e:
                     log.warning("TldrScraper: failed to fetch %s — %s", url, e)
         return articles
+
+
+def missing_edition_dates(
+    watermark: datetime | None, today: date, start_date: date
+) -> list[str]:
+    """Calcule les dates d'édition TLDR restant à scraper — ingestion incrémentale.
+
+    Entrée :
+        watermark : date de la dernière édition déjà en base (None si base vide).
+        today : date du jour, borne haute incluse.
+        start_date : date de départ quand la base est vide (watermark None).
+
+    Sortie :
+        liste de dates "YYYY-MM-DD" (format attendu par build_urls), de la dernière
+        connue + 1 jour jusqu'à aujourd'hui inclus. Liste vide si déjà à jour
+        (watermark >= today) → le 2ᵉ run ne re-scrape rien.
+
+    Voir docs/steps/11-ingestion-incrementale-watermark.md.
+    """
+    start = start_date if watermark is None else watermark.date() + timedelta(days=1)
+    dates: list[str] = []
+    day = start
+    while day <= today:
+        dates.append(day.isoformat())
+        day += timedelta(days=1)
+    return dates
 
 
 def _extract_date(url: str) -> str:
