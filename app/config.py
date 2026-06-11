@@ -36,7 +36,8 @@ class Sources(BaseSettings):
     # ====== arXiv ======
     arXiv_base_url: str = "https://export.arxiv.org/api/query"
     arXiv_topics: list[ArXivTopic] = Field(default_factory=list)
-    arxiv_max_results: int = 25
+    arxiv_max_results: int = 25  # taille d'une page (paramètre max_results de l'API)
+    arxiv_max_pages: int = 5  # plafond de pages paginées par topic (borne le run à froid)
     arxiv_min_year: int = 2025
 
     # ====== TLDR.tech ======

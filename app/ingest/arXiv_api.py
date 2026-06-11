@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -30,12 +31,15 @@ def _tag(name: str) -> str:
 @dataclass
 class ArXivApiIngester:
     settings: Settings | None = None
+    page_delay: float = 3.0  # pause (s) entre deux pages paginées — politesse envers arXiv
 
     def __post_init__(self) -> None:
         if self.settings is None:
             self.settings = get_settings()
 
-    def fetch_articles(self, category: str, keywords: list[str]) -> list[dict[str, Any]]:
+    def fetch_articles(
+        self, category: str, keywords: list[str], start: int = 0
+    ) -> list[dict[str, Any]]:
         """
         Interroge l'API arXiv pour une catégorie et une liste de mots-clés (combinés en OR).
 
@@ -59,13 +63,13 @@ class ArXivApiIngester:
         # ======= Construction de la requête de recherche ========
         # ex. "cat:cs.AI AND (all:deep learning OR all:transformer)"
         kw_query = " OR ".join(f"all:{kw}" for kw in keywords)
-        log.info("[arXiv] topic %s — %d keywords", category, len(keywords))
+        log.info("[arXiv] topic %s — %d keywords (start=%d)", category, len(keywords), start)
 
         params = {
             "search_query": f"cat:{category} AND ({kw_query})",
             "sortBy": "lastUpdatedDate",
             "sortOrder": "descending",
-            "start": 0,
+            "start": start,
             "max_results": self.settings.sources.arxiv_max_results,
         }
 
@@ -211,31 +215,54 @@ class ArXivApiIngester:
         """
         log.info("Début ingestion arXiv — %d topic(s)", len(self.settings.sources.arXiv_topics))
         min_year = self.settings.sources.arxiv_min_year
+        page_size = self.settings.sources.arxiv_max_results
+        max_pages = self.settings.sources.arxiv_max_pages
         # Watermark incrémental : la date <updated> la plus récente déjà en base.
-        # None au tout premier run (base vide) → aucun filtrage incrémental.
+        # None au tout premier run (base vide) → on pagine jusqu'au plafond max_pages.
         watermark = get_watermark("arXiv", "updated_date")
-        results = []
+        results: list[ArXivArticle] = []
+
         for topic in self.settings.sources.arXiv_topics:
-            for raw in self.fetch_articles(topic.category, topic.keywords):
-                article = self.normalize_article(raw)
-                # Incrémental : sauter ce qui est déjà connu (≤ watermark). Le flux
-                # étant trié par lastUpdatedDate décroissant, ces articles sont en fin
-                # de page — on ne garde que nouveautés et révisions.
-                if (
-                    watermark is not None
-                    and article.updated_date is not None
-                    and article.updated_date <= watermark
-                ):
-                    continue
-                if article.published_date is not None and article.published_date.year < min_year:
-                    log.debug(
-                        "Article ignoré (année %d < %d) : %s",
-                        article.published_date.year,
-                        min_year,
-                        article.url,
+            for page in range(max_pages):
+                # Tolérance aux pannes : un échec réseau (timeout arXiv fréquent sur la
+                # pagination) ne doit pas tout perdre. On garde les pages déjà obtenues
+                # et on arrête ce topic proprement.
+                try:
+                    raw_entries = self.fetch_articles(
+                        topic.category, topic.keywords, start=page * page_size
                     )
-                    continue
-                results.append(article)
+                except Exception as e:
+                    log.warning(
+                        "[arXiv] page start=%d échouée (%s) — arrêt du topic %s",
+                        page * page_size,
+                        e,
+                        topic.category,
+                    )
+                    break
+                if not raw_entries:
+                    break  # plus de résultats pour ce topic
+
+                reached_watermark = False
+                for raw in raw_entries:
+                    article = self.normalize_article(raw)
+                    # Flux trié par lastUpdatedDate décroissant : dès qu'on atteint un
+                    # article ≤ watermark, tout le reste est déjà connu → on arrête.
+                    if (
+                        watermark is not None
+                        and article.updated_date is not None
+                        and article.updated_date <= watermark
+                    ):
+                        reached_watermark = True
+                        break
+                    if article.published_date is not None and article.published_date.year < min_year:
+                        continue
+                    results.append(article)
+
+                if reached_watermark:
+                    break  # rattrapage terminé, inutile de paginer plus loin
+                if page + 1 < max_pages:
+                    time.sleep(self.page_delay)  # politesse envers l'API arXiv
+
         log.info("  → %d articles retenus (filtre année ≥ %d)", len(results), min_year)
         return results
 

@@ -1,5 +1,8 @@
 # Ingestion incrémentale et watermark
 
+> **Statut : implémenté** (2026-06-11) pour TLDR et arXiv, pagination arXiv comprise. Ce
+> document garde la trace du raisonnement et des décisions de conception.
+
 ## Problème de départ
 
 En l'état, le scraping (TLDR) et l'appel API (arXiv) récupèrent **à chaque run tous les
@@ -124,14 +127,14 @@ Chaque URL correspond à **une date** (`https://tldr.tech/ai/2026-06-10`).
 
 ### arXiv — flux trié par date décroissante, plafonné
 
-`fetch_articles` demande les `max_results` plus récents.
+`fetch_articles(category, keywords, start)` demande une page de `max_results` résultats à
+partir de l'offset `start`.
 
 1. watermark = `MAX(updated_date)` pour `source = 'arXiv'` ;
 2. **tri du flux sur `lastUpdatedDate descending`** (voir règle d'or ci-dessous) ;
-3. on parcourt le flux du plus récent au plus ancien (en paginant via `start` /
-   `max_results` **si** plus de `max_results` nouveautés depuis le dernier run — c'est ce
-   qui garantit le « sans rien manquer ») ;
-4. on **stoppe dès qu'on atteint le watermark**.
+3. on **pagine** (`start` = 0, 25, 50…) du plus récent au plus ancien ;
+4. on **s'arrête dès qu'un article est `≤ watermark`** (déjà connu) — ou au plafond de
+   pages (voir « Pagination » ci-dessous).
 
 #### Règle d'or : aligner le champ de tri et le champ de watermark
 
@@ -178,6 +181,27 @@ Conséquence assumée : `v1` et `v2` apparaîtront tous deux dans les résultats
 Acceptable pour de la veille ; à revisiter (passage en mode remplacement) seulement si la
 redondance devient gênante.
 
+#### Pagination — deux conditions d'arrêt
+
+L'API arXiv renvoie les résultats par **pages** (`start` = offset, `max_results` = taille).
+`run()` boucle sur les pages d'un topic et s'arrête à la **première** de ces deux
+conditions :
+
+1. **watermark atteint** — un article `≤ watermark` apparaît. Le flux étant trié par
+   `lastUpdatedDate` décroissant, tout le reste est forcément déjà connu → on arrête (cas
+   normal d'un run incrémental, souvent dès la page 1).
+2. **plafond `arxiv_max_pages`** — borne le **run à froid**. Base vide ⇒ watermark `None`
+   ⇒ la condition 1 ne se déclenche jamais ⇒ sans plafond, on paginerait sur tout
+   l'historique du topic. Le plafond limite à `max_pages × max_results` articles
+   (défaut 5 × 25 = 125/topic).
+
+**Tolérance aux pannes** : chaque page est récupérée dans un `try/except`. L'API arXiv
+renvoie fréquemment un timeout sur la pagination ; en cas d'échec, on **conserve les pages
+déjà obtenues** et on arrête le topic, au lieu de tout perdre — cohérent avec la
+philosophie « pipeline dégradable » du reste du code.
+
+**Politesse** : une pause (`page_delay`, défaut 3 s) sépare deux requêtes paginées.
+
 ---
 
 ## Décisions retenues (KISS / YAGNI)
@@ -193,12 +217,15 @@ redondance devient gênante.
 - **arXiv : Option A, coexistence `v1`/`v2`** — tri `lastUpdatedDate`, watermark
   `MAX(updated_date)`, révisions captées comme de nouveaux articles. Seule addition vs
   Option B : le champ `updated_date`. `reference` et `INSERT OR IGNORE` inchangés.
+- **Pagination arXiv bornée** : boucle `start` arrêtée au watermark **ou** au plafond
+  `arxiv_max_pages` (borne le run à froid) ; chaque page en `try/except` (tolérance aux
+  timeouts arXiv) ; pause `page_delay` entre pages.
 - **On commence par TLDR** (logique de dates plus lisible, et pas de piège de champ comme
   arXiv).
 
 ---
 
-## Plan d'implémentation step-by-step
+## Plan d'implémentation (réalisé)
 
 1. **`app/data/article_store.py`** : ajouter une requête watermark. TLDR compare
    `published_date`, arXiv compare `updated_date` (Option A) → prévoir un paramètre de
@@ -209,7 +236,8 @@ redondance devient gênante.
    calcule les dates manquantes jusqu'à aujourd'hui, puis appelle `build_urls` + `run`.
    Cas base vide → date de départ par défaut à définir.
 3. **Validation TLDR** : lancer deux fois et vérifier que le 2ᵉ run ne re-scrape rien.
-4. **arXiv (Option A, coexistence)** : une seule addition de structure —
-   le champ `updated_date` (`models.py` + colonne SQLite + extraction `<updated>` dans
-   `arXiv_api.py`) ; puis watermark `MAX(updated_date)` + arrêt sur watermark dans
-   `fetch_articles`. `reference` et `INSERT OR IGNORE` restent inchangés.
+4. **arXiv (Option A, coexistence)** : champ `updated_date` (`models.py` + colonne SQLite
+   + extraction `<updated>` dans `arXiv_api.py`) ; `upsert_article` le persiste ; `run()`
+   pagine (`fetch_articles(..., start)`) avec arrêt sur watermark **ou** plafond
+   `arxiv_max_pages`, chaque page en `try/except`. `reference` et `INSERT OR IGNORE`
+   restent inchangés.
