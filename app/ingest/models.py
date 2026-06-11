@@ -22,6 +22,10 @@ class Article(BaseModel):
     title: str
     source: str
     published_date: datetime | None
+    # Date de dernière révision côté source (arXiv <updated>). None pour les sources
+    # sans notion de révision (TLDR). Sert de watermark à l'ingestion arXiv (Option A) :
+    # voir docs/steps/12-ingestion-incrementale-watermark.md.
+    updated_date: datetime | None = None
     content: str
     url: str
     tags: list[str]

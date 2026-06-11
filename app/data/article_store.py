@@ -23,14 +23,15 @@ def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
         cursor = conn.execute(
             """
             INSERT OR IGNORE INTO article
-                (reference, title, source, published_date, content, url, tags, authors, ingested_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (reference, title, source, published_date, updated_date, content, url, tags, authors, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 article["reference"],
                 article["title"],
                 article["source"],
                 article["published_date"].isoformat() if article["published_date"] else None,
+                article["updated_date"].isoformat() if article.get("updated_date") else None,
                 article["content"],
                 article["url"],
                 json.dumps(article["tags"]),

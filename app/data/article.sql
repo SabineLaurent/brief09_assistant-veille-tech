@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS article (
     title          TEXT NOT NULL,
     source         TEXT NOT NULL,
     published_date TEXT,
+    updated_date   TEXT,  -- date <updated> arXiv (watermark Option A) ; NULL pour TLDR
     content        TEXT NOT NULL,
     url            TEXT NOT NULL,
     tags           TEXT NOT NULL,

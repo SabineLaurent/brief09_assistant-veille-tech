@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 from lxml import etree
 from app.config import Settings, get_settings
+from app.data.article_store import get_watermark
 from app.ingest.models import Article
 
 
@@ -141,6 +142,7 @@ class ArXivApiIngester:
             "title": text("title"),
             "summary": text("summary"),
             "published": text("published"),
+            "updated": text("updated"),
             "authors": authors,
             "link": link,
             "category": category,
@@ -171,11 +173,15 @@ class ArXivApiIngester:
         published = article.get("published", "")
         date = datetime.fromisoformat(published.replace("Z", "+00:00")) if published else None
 
+        updated = article.get("updated", "")
+        updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00")) if updated else None
+
         return ArXivArticle(
             reference=arxiv_id,
             title=article["title"],
             source="arXiv",
             published_date=date,
+            updated_date=updated_dt,
             content=article["summary"],
             url=article["link"],
             tags=[article["category"]] + article["keywords"],
@@ -205,10 +211,22 @@ class ArXivApiIngester:
         """
         log.info("Début ingestion arXiv — %d topic(s)", len(self.settings.sources.arXiv_topics))
         min_year = self.settings.sources.arxiv_min_year
+        # Watermark incrémental : la date <updated> la plus récente déjà en base.
+        # None au tout premier run (base vide) → aucun filtrage incrémental.
+        watermark = get_watermark("arXiv", "updated_date")
         results = []
         for topic in self.settings.sources.arXiv_topics:
             for raw in self.fetch_articles(topic.category, topic.keywords):
                 article = self.normalize_article(raw)
+                # Incrémental : sauter ce qui est déjà connu (≤ watermark). Le flux
+                # étant trié par lastUpdatedDate décroissant, ces articles sont en fin
+                # de page — on ne garde que nouveautés et révisions.
+                if (
+                    watermark is not None
+                    and article.updated_date is not None
+                    and article.updated_date <= watermark
+                ):
+                    continue
                 if article.published_date is not None and article.published_date.year < min_year:
                     log.debug(
                         "Article ignoré (année %d < %d) : %s",
