@@ -34,8 +34,11 @@ def index() -> None:
     if not articles:
         typer.echo("Aucun article à indexer (status='ingested' introuvable).")
         raise typer.Exit()
-    total_chunks = index_articles(articles)
-    typer.echo(f"{len(articles)} articles indexés → {total_chunks} chunks dans Chroma.")
+    result = index_articles(articles)
+    typer.echo(
+        f"{result.indexed} indexés, {result.skipped} sautés (contenu vide), "
+        f"{result.errors} en erreur → {result.chunks} chunks dans Chroma."
+    )
 
 
 @app.command()
