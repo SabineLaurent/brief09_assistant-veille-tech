@@ -30,7 +30,7 @@ Avec des préfiltres par thématiques déjà en place sur le site.
 
 - scraping tldr du jour.
 
-## Sources froide
+## Autres sources
 
 - scraping tldr avec watermark etc.
 - arxiv api

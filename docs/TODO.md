@@ -48,4 +48,3 @@ Suivi des étapes réalisées et décisions prises dans @docs/steps/
 
 4. Dans fresh_news.api, je veux récupérer uniquement les articles du jour et s'il n'y en a pas, ceux du jours précédents.
 5. Je veux transformer rss_feed en ingester d'article.
-6. 
