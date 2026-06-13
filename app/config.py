@@ -40,6 +40,19 @@ class Sources(BaseSettings):
     arxiv_max_pages: int = 5  # plafond de pages paginées par topic (borne le run à froid)
     arxiv_min_year: int = 2025
 
+    # ====== Flux RSS (fresh_news : actu chaude injectée au moment du chat) ======
+    # Liste d'URLs de flux RSS/Atom. feedparser les lit de façon générique (même code
+    # pour tous). Ajouter un flux = éditer cette liste / la variable RSS_FEEDS du .env,
+    # jamais le code. Voir docs/steps/14-fresh-news-rss.md.
+    rss_feeds: list[str] = Field(
+        default_factory=lambda: [
+            "https://openai.com/news/rss.xml",
+            "https://huggingface.co/blog/feed.xml",
+            "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
+        ]
+    )
+    rss_max_items_per_feed: int = 5  # cap d'items récents par flux (évite d'inonder le LLM)
+
     # ====== TLDR.tech ======
     tldr_base_url: str = "https://tldr.tech"
     # Cas « base vide » (aucune édition TLDR encore ingérée) : date de départ de

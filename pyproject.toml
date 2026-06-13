@@ -12,6 +12,7 @@ dependencies = [
     "beautifulsoup4>=4.12,<5",
     "lxml>=5,<6",
     "markdownify>=0.13,<0.20",
+    "feedparser>=6.0,<7",
     "python-dotenv>=1,<2",
     "langchain>=0.3,<0.4",
     "langchain-core>=0.3,<0.4",
