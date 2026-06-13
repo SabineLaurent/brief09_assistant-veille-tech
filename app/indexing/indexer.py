@@ -50,3 +50,25 @@ def index_articles(articles: list[dict]) -> int:
             update_article_status(reference, "error")
 
     return total_chunks
+
+
+if __name__ == "__main__":
+    """
+    Point d'entrée autonome pour lancer l'indexation directement :
+        uv run python -m app.indexing.indexer
+
+     - lit les articles SQLite en status='ingested'
+     - les découpe + embede + upsert dans Chroma (index_articles)
+     - passe chaque article à status='indexed' (ou 'error' en cas d'échec)
+
+    Même traitement que `make index`, sans passer par la CLI Typer.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    from app.data.article_store import read_ingested_articles
+
+    articles = read_ingested_articles()
+    if not articles:
+        log.info("Aucun article à indexer (status='ingested' introuvable).")
+    else:
+        total_chunks = index_articles(articles)
+        log.info("  → %d articles indexés → %d chunks dans Chroma.", len(articles), total_chunks)
