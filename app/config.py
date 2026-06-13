@@ -22,6 +22,15 @@ class WatchedRepo(BaseModel):
     repo: str
     topic: str | None = None
 
+class RSSFeed(BaseModel):
+    """
+    Représente un flux RSS/Atom à surveiller.
+    """
+
+    url: str
+    topic: str | None = None  # catégorie thématique (vocabulaire contrôlé) ; optionnelle
+    fresh_news: bool = True    # si True, ajoute le tag "New" aux articles du flux
+
 
 class Sources(BaseSettings):
     """
@@ -36,27 +45,19 @@ class Sources(BaseSettings):
     # ====== arXiv ======
     arXiv_base_url: str = "https://export.arxiv.org/api/query"
     arXiv_topics: list[ArXivTopic] = Field(default_factory=list)
-    arxiv_max_results: int = 25  # taille d'une page (paramètre max_results de l'API)
-    arxiv_max_pages: int = 5  # plafond de pages paginées par topic (borne le run à froid)
+    arxiv_max_results: int = 25             # taille d'une page (paramètre max_results de l'API)
+    arxiv_max_pages: int = 5                # plafond de pages paginées par topic (borne le run à froid)
     arxiv_min_year: int = 2025
 
-    # ====== Flux RSS (fresh_news : actu chaude injectée au moment du chat) ======
-    # Liste d'URLs de flux RSS/Atom. feedparser les lit de façon générique (même code
-    # pour tous). Ajouter un flux = éditer cette liste / la variable RSS_FEEDS du .env,
-    # jamais le code. Voir docs/steps/14-fresh-news-rss.md.
-    rss_feeds: list[str] = Field(
-        default_factory=lambda: [
-            "https://openai.com/news/rss.xml",
-            "https://huggingface.co/blog/feed.xml",
-            "https://www.technologyreview.com/topic/artificial-intelligence/feed/",
-        ]
-    )
-    rss_max_items_per_feed: int = 5  # cap d'items récents par flux (évite d'inonder le LLM)
+    # ====== Flux RSS ======
+    # fresh_news : actu "chaude" injectée au moment du chat.
+    # Liste d'URLs de flux RSS/Atom. feedparser les lit de façon générique (même code pour tous).
+    rss_feeds: list[RSSFeed] = Field(default_factory=list)
+    rss_max_items_per_feed: int = 5         # capping d'items récents par flux (évite d'inonder le LLM)
 
     # ====== TLDR.tech ======
     tldr_base_url: str = "https://tldr.tech"
-    # Cas « base vide » (aucune édition TLDR encore ingérée) : date de départ de
-    # l'ingestion. Sinon on repart de la dernière date connue + 1 jour.
+    # Date de départ de l'ingestion (Cas « base vide » (aucune édition TLDR encore ingérée). Sinon on repart de la dernière date connue + 1 jour.
     tldr_start_date: str = "2026-06-01"
 
     # ====== GitHub ======

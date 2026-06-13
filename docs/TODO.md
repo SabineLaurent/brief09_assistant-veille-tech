@@ -34,7 +34,7 @@ Suivi des étapes réalisées et décisions prises dans @docs/steps/
      - cs.AR + "AI", "on-device", "edge", "tinyML".
      - cs.SY + "AI", "inference", "edge", "embedded".
   
-2. ✅ **Fait** (2026-06-13, cf. `docs/steps/13-attribut-keywords.md`) — ajouter un attribut keywords à la table article. Et répercuter cette modification en adaptant le code de la suite du pipeline.
+- [x] 2. **Done** (2026-06-13, cf. `docs/steps/13-attribut-keywords.md`) — ajouter un attribut keywords à la table article. Et répercuter cette modification en adaptant le code de la suite du pipeline.
 
 3. mettre en place un agent pour déterminer la/les catégorie(s) de l'article,  générer les mot clés adaptés.
    - dans un premier temps l'agent sera activable manuellement.
@@ -45,3 +45,7 @@ Suivi des étapes réalisées et décisions prises dans @docs/steps/
      - Agentique
      - Embarqué
    - les mots clés seront générés par l'agent selon le contenu de l'article source, puis enregistré en db sqlite sous l'attribut keywords de la table article.
+
+4. Dans fresh_news.api, je veux récupérer uniquement les articles du jour et s'il n'y en a pas, ceux du jours précédents.
+5. Je veux transformer rss_feed en ingester d'article.
+6. 

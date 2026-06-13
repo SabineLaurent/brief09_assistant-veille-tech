@@ -1,6 +1,6 @@
 # Data sources
 
-## Sources retenues (sera complété petit à petit)
+<!-- ## Sources retenues (sera complété petit à petit)
 
 Sources "froides", ou ce que j'appelle le "core data".
 
@@ -24,5 +24,14 @@ Avec des préfiltres par thématiques déjà en place sur le site.
 
 - BDM (Le blog du modérateur) --> veille digitale et web plus large
 - briefia.fr/newsletter --> couvre l’essentiel de l’actualité IA mondiale
-- Latent.space
-- 
+- Latent.space -->
+
+## Sources fresh
+
+- scraping tldr du jour.
+
+## Sources froide
+
+- scraping tldr avec watermark etc.
+- arxiv api
+- flux rss openai, blog huggingface et à compléter.
