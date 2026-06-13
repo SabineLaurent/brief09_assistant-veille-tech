@@ -12,8 +12,8 @@ from app.data.article_store import (
     upsert_article,
 )
 from app.indexing.indexer import index_articles
-from app.ingest.arXiv_api import ArXivApiIngester
-from app.ingest.tldr_scraper import TldrScraper, missing_edition_dates
+from app.ingest.sources_ingesters.arXiv_api import ArXivApiIngester
+from app.ingest.sources_ingesters.tldr_scraper import TldrScraper, missing_edition_dates
 
 app = typer.Typer(help="Ingestion CLI for the veille tech index.")
 

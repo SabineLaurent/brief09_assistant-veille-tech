@@ -25,16 +25,17 @@ import logging
 from app.data.article_store import count_articles, upsert_article
 from app.data.csv_exporter import export_to_csv
 from app.data.migrate import init_db
-from app.ingest.arXiv_api import ArXivApiIngester
+from app.ingest.sources_ingesters.arXiv_api import ArXivApiIngester
 from app.ingest.article_models import Article
-from app.ingest.rss_feed import RssFeedIngester
-from app.ingest.tldr_scraper import TldrScraper
+from app.ingest.sources_ingesters.rss_feed import RssFeedIngester
+from app.ingest.sources_ingesters.tldr_scraper import TldrScraper
 
 log = logging.getLogger(__name__)
 
 
 def _persist(articles: list[Article], source_name: str) -> int:
-    """Le rituel commun à toutes les sources : persiste en base + log CSV.
+    """
+    Le rituel commun à toutes les sources : persiste en base + log CSV.
 
     Entrée :
         articles    : liste d'Article pydantic produite par un ingester.
@@ -45,6 +46,7 @@ def _persist(articles: list[Article], source_name: str) -> int:
         nombre d'articles RÉELLEMENT insérés (upsert idempotent : un article
         déjà connu via sa `reference` n'est pas recompté).
     """
+
     if not articles:
         log.info("[%s] aucun article récupéré.", source_name)
         return 0
@@ -62,25 +64,32 @@ def _persist(articles: list[Article], source_name: str) -> int:
 
 
 def _ingest_arxiv() -> int:
-    """arXiv : l'ingester gère son watermark en interne, on appelle juste run()."""
+    """
+    arXiv : l'ingester gère son watermark en interne, on appelle juste run().
+    """
     articles = ArXivApiIngester().run()
     return _persist(articles, "arxiv")
 
 
 def _ingest_tldr() -> int:
-    """TLDR : run_incremental() encapsule le calcul du watermark (cf. tldr_scraper)."""
+    """
+    TLDR : run_incremental() encapsule le calcul du watermark (cf. tldr_scraper).
+    """
     articles = TldrScraper().run_incremental()
     return _persist(articles, "tldr")
 
 
 def _ingest_rss() -> int:
-    """RSS : l'ingester cape par flux en interne, on appelle juste run()."""
+    """
+    RSS : l'ingester cape par flux en interne, on appelle juste run().
+    """
     articles = RssFeedIngester().run()
     return _persist(articles, "rss")
 
 
 def run_all() -> None:
-    """Collecte TOUTES les sources froides → SQLite, en mode tolérant aux pannes.
+    """
+    Collecte TOUTES les sources froides → SQLite, en mode tolérant aux pannes.
 
     Chaque source est isolée dans un try/except : une source qui plante est
     loggée puis ignorée, les autres continuent. À la fin, on affiche le total
@@ -104,7 +113,7 @@ def run_all() -> None:
             log.error("[%s] source en échec — %s", name, e)
 
     log.info("Ingestion froide terminée : %d nouveau(x) article(s) au total.", total_inserted)
-    log.info("  → La base contient maintenant %d entrées.", count_articles())
+    log.info("  --> La base contient maintenant %d entrées.", count_articles())
 
 
 if __name__ == "__main__":
