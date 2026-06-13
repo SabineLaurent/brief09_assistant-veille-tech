@@ -19,3 +19,10 @@ WATCHED_REPOS=[{"owner":"exemple-owner1","repo":"exemple-repo1"},{"owner":"exemp
 ## Web scraping - TLDR.tech
 
 Avec des préfiltres par thématiques déjà en place sur le site.
+
+## A voir...
+
+- BDM (Le blog du modérateur) --> veille digitale et web plus large
+- briefia.fr/newsletter --> couvre l’essentiel de l’actualité IA mondiale
+- Latent.space
+- 
