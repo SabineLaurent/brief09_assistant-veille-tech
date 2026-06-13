@@ -29,6 +29,9 @@ class Article(BaseModel):
     content: str
     url: str
     tags: list[str]
+    # Mots-clés de contenu (sujet réel de l'article), distincts des tags (provenance/
+    # requête). Vides à l'ingestion ; remplis ensuite par l'agent (TODO pt.3).
+    keywords: list[str] = Field(default_factory=list)
     authors: list[str]
     # Field(default_factory=datetime.now) et pas = datetime.now() :
     # avec = datetime.now(), la date serait calculée une seule fois au chargement
@@ -43,8 +46,11 @@ class Article(BaseModel):
             "source": self.source,
             "date": self.published_date.isoformat() if self.published_date else "",
             "url": self.url,
-            "tags": "|".join(self.tags),
-            "authors": "|".join(self.authors),
+            # Chroma n'accepte que des scalaires en métadonnée (pas de liste) : on
+            # encode en chaîne séparée par ", " — relue côté llm._split_tags.
+            "tags": ", ".join(self.tags),
+            "keywords": ", ".join(self.keywords),
+            "authors": ", ".join(self.authors),
         }
 
     def to_indexable(self) -> dict[str, Any]:

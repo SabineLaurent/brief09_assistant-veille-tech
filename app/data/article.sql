@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS article (
     updated_date   TEXT,  -- date <updated> arXiv (watermark Option A) ; NULL pour TLDR
     content        TEXT NOT NULL,
     url            TEXT NOT NULL,
-    tags           TEXT NOT NULL,
+    tags           TEXT NOT NULL,                -- provenance/requête (JSON liste) : ex. catégorie arXiv
+    keywords       TEXT NOT NULL DEFAULT '[]',   -- mots-clés de contenu (JSON liste) ; remplis par l'agent (TODO pt.3)
     authors        TEXT NOT NULL,
     status         TEXT NOT NULL DEFAULT 'ingested' CHECK (status IN ('ingested', 'indexed', 'error')),
     -- SQLite n'a pas de type DATETIME natif : les dates sont stockées en TEXT

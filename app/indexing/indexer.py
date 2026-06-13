@@ -22,13 +22,18 @@ def index_articles(articles: list[dict]) -> int:
             if not chunks:
                 continue
 
-            tags_str = "|".join(json.loads(article.get("tags", "[]")))
+            # tags/keywords sont stockés en JSON dans SQLite → on les relit puis on
+            # ré-encode en chaîne ", " (Chroma n'accepte pas de liste en métadonnée ;
+            # llm._split_tags redécoupe sur la virgule).
+            tags_str = ", ".join(json.loads(article.get("tags", "[]")))
+            keywords_str = ", ".join(json.loads(article.get("keywords", "[]")))
             metadata = {
                 "title": article.get("title", ""),
                 "source": article.get("source", ""),
                 "date": article.get("published_date") or "",
                 "url": article.get("url", ""),
                 "tags": tags_str,
+                "keywords": keywords_str,
             }
 
             ids = [f"{reference}::{i}" for i in range(len(chunks))]

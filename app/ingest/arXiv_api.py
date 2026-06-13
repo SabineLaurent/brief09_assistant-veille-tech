@@ -170,7 +170,8 @@ class ArXivApiIngester:
                 reference="2411.18583v1", title="...", source="arXiv",
                 published_date=datetime|None, content="<abstract>",
                 url="http://arxiv.org/abs/2411.18583v1",
-                tags=["cs.AI", "deep learning", ...], authors=["Alice Martin", ...]
+                tags=["cs.AI"], keywords=["deep learning", ...],
+                authors=["Alice Martin", ...]
         """
         arxiv_id = article["id"].split("/abs/")[-1]  # ex: "2411.18583v1"
 
@@ -188,7 +189,10 @@ class ArXivApiIngester:
             updated_date=updated_dt,
             content=article["summary"],
             url=article["link"],
-            tags=[article["category"]] + article["keywords"],
+            # tags = provenance (catégorie arXiv de la requête) ; keywords = mots-clés
+            # de recherche ayant trouvé l'article (déplacés depuis tags, cf. TODO pt.2).
+            tags=[article["category"]],
+            keywords=article["keywords"],
             authors=article["authors"],
         )
 

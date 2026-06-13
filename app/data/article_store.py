@@ -23,8 +23,8 @@ def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
         cursor = conn.execute(
             """
             INSERT OR IGNORE INTO article
-                (reference, title, source, published_date, updated_date, content, url, tags, authors, ingested_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (reference, title, source, published_date, updated_date, content, url, tags, keywords, authors, ingested_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 article["reference"],
@@ -35,6 +35,7 @@ def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
                 article["content"],
                 article["url"],
                 json.dumps(article["tags"]),
+                json.dumps(article.get("keywords", [])),
                 json.dumps(article["authors"]),
                 article["ingested_at"].isoformat() if article["ingested_at"] else None,
             ),
