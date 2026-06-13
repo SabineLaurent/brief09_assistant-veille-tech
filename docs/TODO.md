@@ -1,16 +1,21 @@
 # TODO
 
-## Développement
-
 - Je suis novice en python.
 - Je veux du code simple, kiss, yagni.
 - Faire en sorte que ça marche dans un premier temps, rendre le code plus propre, maintenanble, stable et défensif dans un second temps.
 
 - Avant d'implémenter la solution, faire une proposition avec avancée step by step en mode professeur (explication claire, précise, logique, etc).
 
+## Développement
+
 1. Concevoir et écrire le code pour requeter l'API dont les données finiront dans la base de connaissance (app/ingest/news_api.py ; pagination, normalisation des articles, validation pydantic, upsert dans Chroma)
 
 2. Concevoir et écrire le scraping de 2 à 3 sources tech (app/ingest/scraper.py ; 1 blog technique, 1 changelog produit, 1 page de doc / annonce).
+3. Écrire le nettoyage HTML→Markdown + déduplication + chunking + suppression boilerplate (app/ingest/cleaning.py)
+4. Concevoir et écrire le code pour requeter l'API qui sera appelée en temps réel (online) (app/runtime/fresh_news.py
+5. Composer les requêtes vers la collection Chroma (paramètres n_results, filtres metadata) et vers l'API fresh news
+6. Brancher l'ingestion + le runtime sur les hooks déjà en place dans app/chat.py : faire en sorte que enrich_retrieval(...) et fresh_news.fetch(...) ne renvoient plus NotImplementedError mais des listes utilisables par le LLM
+7. documenter le flux de bout en bout (Markdown) à destination de l'équipe.
 
 ## Avancement du projet
 
