@@ -73,3 +73,13 @@ class Article(BaseModel):
             "content": self.content,
             "metadata": self.to_chroma_metadata(),
         }
+
+
+class ArXivArticle(Article):
+    pass
+
+class TldrArticle(Article):
+    pass
+
+class RssArticle(Article):
+    is_fresh_news: bool = False  # True si l'article est dans un flux RSS "fresh_news"

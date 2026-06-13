@@ -10,11 +10,7 @@ import httpx
 from lxml import etree
 from app.config import Settings, get_settings
 from app.data.article_store import get_watermark
-from app.ingest.models import Article
-
-
-class ArXivArticle(Article):
-    pass
+from app.ingest.article_models import ArXivArticle
 
 
 log = logging.getLogger(__name__)
@@ -31,7 +27,7 @@ def _tag(name: str) -> str:
 @dataclass
 class ArXivApiIngester:
     settings: Settings | None = None
-    page_delay: float = 3.0  # pause (s) entre deux pages paginées — politesse envers arXiv
+    page_delay: float = 3.0  # pause (s) entre deux pages paginées — "politesse" envers arXiv
 
     def __post_init__(self) -> None:
         if self.settings is None:

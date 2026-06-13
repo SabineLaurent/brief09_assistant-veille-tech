@@ -3,21 +3,21 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import httpx
 from bs4 import BeautifulSoup, Tag
 
 from app.config import get_settings
+from app.data.article_store import get_watermark
 from app.ingest.cleaning import clean_html_to_markdown
-from app.ingest.models import Article
+from app.ingest.article_models import TldrArticle
 
 log = logging.getLogger(__name__)
 
 
-class TldrArticle(Article):
-    pass
+
 
 
 @dataclass
@@ -25,6 +25,7 @@ class TldrScraper:
     base_url: str = get_settings().sources.tldr_base_url
     user_agent: str = "nauda-palisse-veille/0.1"
     timeout: float = 10.0
+    editions: list[str] = field(default_factory=lambda: ["tech", "webdev", "ai"])
 
     def build_urls(self, editions: list[str], date: str) -> list[str]:
         """
@@ -72,6 +73,37 @@ class TldrScraper:
                 except Exception as e:
                     log.warning("TldrScraper: failed to fetch %s — %s", url, e)
         return articles
+
+    def run_incremental(self) -> list[TldrArticle]:
+        """Collecte incrémentale : calcule les éditions manquantes puis scrape.
+
+        Encapsule l'enchaînement qui vivait jusqu'ici dans le CLI `tldr` :
+            get_watermark (article_store) → missing_edition_dates → build_urls → run
+
+        Sortie :
+            liste de TldrArticle des éditions manquantes (watermark+1 →
+            aujourd'hui). Liste vide si la base est déjà à jour.
+
+        Pendant : aligne TLDR sur arXiv — l'appelant n'a plus qu'à faire
+        `.run_incremental()` sans connaître la mécanique du watermark.
+        """
+        settings = get_settings()
+        watermark = get_watermark("tldr.tech", "published_date")
+        start_date = date.fromisoformat(settings.sources.tldr_start_date)
+        dates = missing_edition_dates(watermark, date.today(), start_date)
+        if not dates:
+            log.info("TLDR déjà à jour, rien à scraper.")
+            return []
+
+        urls = [u for d in dates for u in self.build_urls(self.editions, d)]
+        log.info(
+            "TLDR : %d date(s) à scraper (%s → %s), %d URL(s).",
+            len(dates),
+            dates[0],
+            dates[-1],
+            len(urls),
+        )
+        return self.run(urls)
 
 
 def missing_edition_dates(
