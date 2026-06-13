@@ -39,7 +39,10 @@ class TldrScraper:
             liste d'URLs, une par édition,
             ex. ["https://tldr.tech/tech/2026-06-10", "https://tldr.tech/ai/2026-06-10"]
         """
-        return [f"{self.base_url}/{edition}/{date}" for edition in editions]
+        # rstrip("/") : le base_url peut finir par un "/" (selon le .env) ; sans ça
+        # on obtiendrait un double slash "https://tldr.tech//tech/..." (redirect 308).
+        base = self.base_url.rstrip("/")
+        return [f"{base}/{edition}/{date}" for edition in editions]
 
     def run(self, urls: list[str]) -> list[TldrArticle]:
         """
