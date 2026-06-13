@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -11,6 +11,7 @@ import feedparser
 import httpx
 
 from app.config import Settings, get_settings
+from app.data.article_store import get_watermark
 from app.ingest.cleaning import clean_html_to_markdown
 from app.ingest.article_models import RssArticle
 
@@ -61,11 +62,14 @@ class RssFeedIngester:
 
         Sortie :
             liste de RssArticle (voir _normalize_entry pour la forme), tous flux
-            confondus, plafonnée à `rss_max_items_per_feed` items par flux.
+            confondus. Collecte froide incrémentale : par flux, on prend les
+            articles publiés depuis le watermark (dernière date connue en base) ;
+            au run à froid (watermark None), on part de `rss_start_date`.
             Liste vide si tous les flux ont échoué.
         """
         feeds = self.settings.sources.rss_feeds
-        cap = self.settings.sources.rss_max_items_per_feed
+        # Plancher du run à froid (watermark None) : uniforme avec tldr_start_date.
+        start = date.fromisoformat(self.settings.sources.rss_start_date)
         articles: list[RssArticle] = []
 
         with httpx.Client(
@@ -82,10 +86,21 @@ class RssFeedIngester:
                     parsed = feedparser.parse(resp.content)
                     feed_title = parsed.feed.get("title", "")
 
+                    # Watermark PAR FLUX : la source stockée en base est le titre du
+                    # flux (cf. _normalize_entry). floor = dernière date connue, ou
+                    # rss_start_date au premier run. L'upsert idempotent gère les
+                    # doublons du jour-frontière, donc un simple ">=" suffit.
+                    source = feed_title or urlparse(feed.url).netloc
+                    watermark = get_watermark(source, "published_date")
+                    floor = watermark.date() if watermark else start
+
                     kept = 0
                     for entry in parsed.entries:
-                        if kept >= cap:
-                            break
+                        # On saute les articles publiés avant le plancher. Ceux sans
+                        # date détectable (None) sont conservés.
+                        published = _entry_datetime(entry)
+                        if published is not None and published.date() < floor:
+                            continue
                         articles.append(
                             self._normalize_entry(entry, feed_title, feed.topic)
                         )

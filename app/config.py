@@ -53,7 +53,13 @@ class Sources(BaseSettings):
     # fresh_news : actu "chaude" injectée au moment du chat.
     # Liste d'URLs de flux RSS/Atom. feedparser les lit de façon générique (même code pour tous).
     rss_feeds: list[RSSFeed] = Field(default_factory=list)
-    rss_max_items_per_feed: int = 5         # capping d'items récents par flux (évite d'inonder le LLM)
+    # Plafond d'items par flux — utilisé seulement côté fresh news (éviter d'inonder
+    # le LLM). PAS appliqué en collecte froide (RssFeedIngester), qui prend tout
+    # depuis rss_start_date.
+    rss_max_items_per_feed: int = 5
+    # Date plancher (ISO "YYYY-MM-DD") de la collecte froide RSS : on ignore les
+    # articles publiés avant. Les articles sans date détectable sont conservés.
+    rss_start_date: str = "2026-06-01"
 
     # ====== TLDR.tech ======
     tldr_base_url: str = "https://tldr.tech"
