@@ -67,3 +67,19 @@ Suivi des étapes réalisées et décisions prises dans @docs/steps/
      - faire générer un résumé par l'agent du point 3, en même temps qu'il génère les
        mots-clés (même passe sur l'article) : ce résumé peuplerait `content`. Riche,
        mais coûteux et dépendant de la mise en place de l'agent.
+
+7. Préfixer le titre de l'article au chunk avant embedding.
+   - Constat : le titre porte souvent le sujet réel de l'article ; l'inclure dans le
+     texte embedé (et non plus seulement en métadonnée) améliore le rappel à moindre
+     coût, surtout pour les chunks « du milieu » d'un article qui ne le mentionnent pas.
+   - À envisager côté `indexer.index_articles` (ex. `text = f"{title}\n\n{chunk}"`),
+     en gardant la cohérence d'embedding (même modèle, même normalisation).
+
+8. Déduplication des résultats par article côté frontend.
+   - Constat : un même article ressort plusieurs fois dans la réponse à une requête
+     quand plusieurs de ses chunks vectorisés matchent (top-k ramène N chunks du même
+     article) → cards en double.
+   - Piste : dédupliquer par `reference` (désormais en métadonnée Chroma) côté
+     `retrieval.retrieve` ou `llm._build_cards` — garder le meilleur chunk par article
+     (plus petite distance) et fusionner. Éventuellement sur-échantillonner (`n_results`
+     plus grand) avant dédup pour ne pas perdre en diversité.
