@@ -40,11 +40,15 @@ def index_articles(articles: list[dict]) -> IndexResult:
                 continue
 
             # tags/keywords sont stockés en JSON dans SQLite → on les relit puis on
-            # ré-encode en chaîne ", " (Chroma n'accepte pas de liste en métadonnée ;
+            # ré-encode en chaîne ", " (Chroma n'accepte pas de liste en métadonnée;
             # llm._split_tags redécoupe sur la virgule).
             tags_str = ", ".join(json.loads(article.get("tags", "[]")))
             keywords_str = ", ".join(json.loads(article.get("keywords", "[]")))
             metadata = {
+                # `reference` permet de retrouver tous les chunks d'un article
+                # (collection.get(where={"reference": ...})) pour patcher leur
+                # métadonnée sans re-vectoriser.
+                "reference": reference,
                 "title": article.get("title", ""),
                 "source": article.get("source", ""),
                 "date": article.get("published_date") or "",
@@ -69,6 +73,41 @@ def index_articles(articles: list[dict]) -> IndexResult:
             errors += 1
 
     return IndexResult(indexed=indexed, skipped=skipped, errors=errors, chunks=total_chunks)
+
+
+def patch_article_metadata(reference: str, tags: list[str], keywords: list[str]) -> int:
+    """
+    Rafraîchit tags/keywords dans la métadonnée des chunks déjà indexés d'un article.
+
+    Sert quand l'agent de review annote un article DÉJÀ indexé : seuls tags/keywords
+    changent, le texte embedé est inchangé. On met donc à jour la seule métadonnée
+    (collection.update) sans re-découper ni re-vectoriser — re-embed produirait les
+    mêmes vecteurs.
+
+    Les chunks de l'article sont retrouvés via la métadonnée `reference`. tags/keywords
+    sont ré-encodés en chaîne ", " comme à l'indexation (Chroma n'accepte pas de liste
+    en métadonnée). Les autres champs (title, source, date, url, reference) sont
+    préservés.
+
+    Retourne le nombre de chunks patchés (0 si l'article n'est pas encore indexé).
+    """
+    collection = get_collection()
+    found = collection.get(where={"reference": reference})
+    ids = found["ids"]
+    if not ids:
+        return 0
+
+    tags_str = ", ".join(tags)
+    keywords_str = ", ".join(keywords)
+    metadatas = []
+    for meta in found["metadatas"]:
+        updated = dict(meta)
+        updated["tags"] = tags_str
+        updated["keywords"] = keywords_str
+        metadatas.append(updated)
+
+    collection.update(ids=ids, metadatas=metadatas)
+    return len(ids)
 
 
 if __name__ == "__main__":
