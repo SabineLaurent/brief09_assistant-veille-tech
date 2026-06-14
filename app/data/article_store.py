@@ -17,7 +17,9 @@ _WATERMARK_FIELDS = ("published_date", "updated_date")
 
 
 def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
-    """Insère l'article. Retourne True si inséré, False si déjà présent."""
+    """
+    Insère l'article. Retourne True si inséré, False si déjà présent.
+    """
     path = db_path or get_settings().ingest_db_path
     with sqlite3.connect(path) as conn:
         cursor = conn.execute(
@@ -44,17 +46,18 @@ def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
 
 
 def count_articles(db_path: str | None = None) -> int:
-    """Retourne le nombre total d'articles en base."""
+    """
+    Retourne le nombre total d'articles en base.
+    """
     path = db_path or get_settings().ingest_db_path
     with sqlite3.connect(path) as conn:
         row = conn.execute("SELECT COUNT(*) FROM article").fetchone()
         return row[0]
 
 
-def get_watermark(
-    source: str, date_field: str, db_path: str | None = None
-) -> datetime | None:
-    """Retourne la date la plus récente connue en base pour une source — le « high
+def get_watermark(source: str, date_field: str, db_path: str | None = None) -> datetime | None:
+    """
+    Retourne la date la plus récente connue en base pour une source — le « high
     watermark ». Sert à borner la prochaine ingestion (ne récupérer que ce qui est
     plus récent). Voir docs/steps/11-ingestion-incrementale-watermark.md.
 
@@ -73,9 +76,7 @@ def get_watermark(
     même ordre que chronologiquement.
     """
     if date_field not in _WATERMARK_FIELDS:
-        raise ValueError(
-            f"date_field invalide : {date_field!r} (attendu : {_WATERMARK_FIELDS})"
-        )
+        raise ValueError(f"date_field invalide : {date_field!r} (attendu : {_WATERMARK_FIELDS})")
 
     path = db_path or get_settings().ingest_db_path
     with sqlite3.connect(path) as conn:
@@ -89,7 +90,8 @@ def get_watermark(
 
 
 def update_article_status(reference: str, status: str, db_path: str | None = None) -> None:
-    """Met à jour le status d'un article ('ingested', 'indexed', 'error').
+    """
+    Met à jour le status d'un article ('ingested', 'indexed', 'error').
     Renseigne indexed_at automatiquement quand status='indexed'.
     """
     path = db_path or get_settings().ingest_db_path
@@ -107,11 +109,65 @@ def update_article_status(reference: str, status: str, db_path: str | None = Non
 
 
 def read_ingested_articles(db_path: str | None = None) -> list[dict]:
-    """Retourne tous les articles avec status='ingested' (non encore indexés)."""
+    """
+    Retourne tous les articles avec status='ingested' (non encore indexés).
+    """
     path = db_path or get_settings().ingest_db_path
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT * FROM article WHERE status = 'ingested'"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM article WHERE status = 'ingested'").fetchall()
         return [dict(row) for row in rows]
+
+
+def read_unreviewed_articles(db_path: str | None = None) -> list[dict]:
+    """
+    Retourne les articles que l'agent de review n'a pas encore traités
+    (llm_reviewed_at IS NULL).
+
+    `llm_reviewed_at` est le signal de lecture par l'agent de completion des enregistrements d'articles:
+    NULL = pas encore complété. On teste avec IS NULL, car en SQL rien n'est « = NULL », pas même NULL.
+    """
+    path = db_path or get_settings().ingest_db_path
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM article WHERE llm_reviewed_at IS NULL").fetchall()
+        return [dict(row) for row in rows]
+
+
+def update_article_records_with_llm_reviews(
+    reference: str,
+    keywords: list[str],
+    tags: list[str],
+    generated_summary: str | None = None,
+    db_path: str | None = None,
+) -> None:
+    """
+    Écrit le résultat de l'agent de review et horodate llm_reviewed_at.
+
+    keywords/tags sont stockés en JSON (comme dans upsert_article). Le
+    `generated_summary` n'est fourni que pour les articles SANS content: dans
+    ce cas on l'écrit dans la colonne `content`. Si generated_summary is None,
+    on laisse le content source intact et on ne met à jour que keywords/tags +
+    l'horodatage (le résumé LLM ne sert qu'à combler un content vide, jamais à
+    écraser un contenu source fidèle, cf. docs/steps/18).
+    """
+    path = db_path or get_settings().ingest_db_path
+    with sqlite3.connect(path) as conn:
+        if generated_summary is not None:
+            conn.execute(
+                """
+                UPDATE article
+                SET keywords = ?, tags = ?, content = ?, llm_reviewed_at = CURRENT_TIMESTAMP
+                WHERE reference = ?
+                """,
+                (json.dumps(keywords), json.dumps(tags), generated_summary, reference),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE article
+                SET keywords = ?, tags = ?, llm_reviewed_at = CURRENT_TIMESTAMP
+                WHERE reference = ?
+                """,
+                (json.dumps(keywords), json.dumps(tags), reference),
+            )
