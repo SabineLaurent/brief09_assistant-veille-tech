@@ -31,8 +31,8 @@ class _Review(BaseModel):
     Sortie lorsque le content est suffisant : on annote sans résumer.
     """
 
-    keywords: list[str] = Field(description="mots-clés de contenu (sujet réel de l'article)")
-    topics: list[str] = Field(description="topics choisis dans la liste imposée")
+    keywords: list[str] = Field(description="content keywords (the article's actual subject)")
+    topics: list[str] = Field(description="topics chosen from the allowed list")
 
 
 class _ReviewWithSummary(BaseModel):
@@ -45,9 +45,9 @@ class _ReviewWithSummary(BaseModel):
     `_Review` (deux champs sont dupliqués, à dessein).
     """
 
-    summary: str = Field(description="résumé de l'article, niveau abstract, quelques phrases")
-    keywords: list[str] = Field(description="mots-clés reflétant le sujet central du résumé")
-    topics: list[str] = Field(description="topics choisis dans la liste imposée")
+    summary: str = Field(description="summary of the article, abstract level, a few sentences")
+    keywords: list[str] = Field(description="keywords reflecting the central subject of the summary")
+    topics: list[str] = Field(description="topics chosen from the allowed list")
 
 
 @dataclass
@@ -83,14 +83,15 @@ def get_mini_agent() -> ChatOpenAI | None:
 
 def _build_system_prompt(available_topics: list[str]) -> str:
     return (
-        "Tu es l'agent d'annotation de la veille technologique de Nauda Palisse.\n"
-        "Pour l'article fourni, produis des mots-clés (keywords) décrivant son sujet "
-        "réel, et un ou plusieurs topics.\n"
-        "Si un résumé est demandé: rédige-le d'abord (quelques phrases, niveau "
-        "abstract, en français), puis des keywords reflétant son sujet central.\n"
-        "Reste factuel, en français, n'invente rien."
-        "Choisis les topics UNIQUEMENT dans cette liste: "
+        "You are an English-speaking technology-watch annotation agent for Nauda Palisse.\n"
+        "For the given article, produce keywords describing its actual subject, and "
+        "one or more topics.\n"
+        "Choose topics ONLY from this list: "
         f"{', '.join(available_topics)}.\n"
+        "Write the summary (if requested) and the keywords STRICTLY IN ENGLISH, "
+        "staying faithful to the article's tone, style and vocabulary.\n"
+        "If a summary is requested, write it first (a few sentences, abstract level), "
+        "then keywords reflecting its central subject. Stay factual, do not invent anything."
     )
 
 
@@ -142,7 +143,7 @@ def review_article(article: dict) -> ReviewResult | None:
         review = agent.with_structured_output(schema).invoke(
             [
                 SystemMessage(content=_build_system_prompt(settings.available_topics)),
-                HumanMessage(content=f"Titre : {title}\n\nContenu :\n{text}"),
+                HumanMessage(content=f"Title: {title}\n\nContent:\n{text}"),
             ]
         )
     except Exception as exc:

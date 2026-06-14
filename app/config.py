@@ -99,8 +99,11 @@ class Settings(BaseSettings):
     # (1) l'agent de review (cible de classification) et (2) l'endpoint /topics (filtres
     # du frontend). Surchargeable en JSON via .env (comme ARXIV_TOPICS).
     # ⚠️ Valeurs PROVISOIRES tant que la taxonomie définitive n'est pas tranchée.
+    # Termes en anglais : le contenu indexé est majoritairement anglophone (arXiv,
+    # TLDR), on aligne donc le vocabulaire de classification sur cette langue pour la
+    # cohérence de la base vectorielle et des filtres.
     available_topics: list[str] = Field(
-        default_factory=lambda: ["AI", "Sécurité", "Agentique", "Embarqué"]
+        default_factory=lambda: ["AI", "Security", "Agentic", "Embedded"]
     )
 
     chroma_url: str = "http://chromadb:8000"
