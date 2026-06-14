@@ -48,3 +48,22 @@ Suivi des étapes réalisées et décisions prises dans @docs/steps/
 
 4. Dans fresh_news.api, je veux récupérer uniquement les articles du jour et s'il n'y en a pas, ceux du jours précédents.
 5. Je veux transformer rss_feed en ingester d'article.
+6. Articles sans contenu coincés en `ingested` à l'indexation.
+   - Constat (2026-06-13) : à l'indexation, les articles dont `content` est vide
+     produisent `chunk("") == []` → `index_articles` les saute (`continue`) sans
+     changer leur status. Ils restent donc en `status='ingested'` et sont relus puis
+     re-sautés à chaque `make index`. Cas observé : 12 articles (11 du blog Hugging
+     Face, 1 TLDR) dont le flux RSS ne fournit que titre + lien, sans corps.
+   - Pistes (par effort croissant) :
+     - **(privilégiée)** quand `content` est vide, replier sur le titre comme texte
+       indexable : l'article devient retrouvable (embedding sur le titre, card =
+       titre + lien). Signal faible mais mieux que rien. À décider : repli à
+       l'indexation (`text = content or title`, ne touche pas au `content` stocké)
+       vs à l'ingestion (écrit `content = title` en base, salit le contenu source).
+     - leur donner un status distinct (`skipped`) quand `chunks` est vide, pour qu'ils
+       sortent de la file `ingested`.
+     - enrichir le contenu RSS : pour les flux sans corps, scraper la page (`url`) afin
+       de récupérer le texte avant indexation.
+     - faire générer un résumé par l'agent du point 3, en même temps qu'il génère les
+       mots-clés (même passe sur l'article) : ce résumé peuplerait `content`. Riche,
+       mais coûteux et dépendant de la mise en place de l'agent.

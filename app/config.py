@@ -88,6 +88,13 @@ class Settings(BaseSettings):
     azure_ai_inference_api_key: str = ""
     azure_ai_inference_model: str = "Kimi-K2.6"
 
+    # Agent d'enrichissement (résumé + mots-clés + catégorie), distinct du chat :
+    # endpoint/clé séparés de Kimi (déploiement Foundry dédié, modèle "mini"). Défauts
+    # vides → mode dégradé possible (l'agent ne plante pas sans config), comme get_llm().
+    azure_ai_mini_agent_endpoint: str = ""
+    azure_ai_mini_agent_api_key: str = ""
+    azure_ai_mini_agent_model: str = "gpt-5.4-mini"
+
     chroma_url: str = "http://chromadb:8000"
     chroma_collection: str = "articles"
     embedding_model: str = "intfloat/multilingual-e5-small"
