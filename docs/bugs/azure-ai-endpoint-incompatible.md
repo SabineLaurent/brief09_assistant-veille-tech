@@ -1,5 +1,13 @@
 # Bug : endpoint Azure AI Foundry incompatible avec langchain-azure-ai
 
+> **✅ RÉSOLU (2026-06-14)** — migration de `AzureAIChatCompletionsModel`
+> (`langchain-azure-ai`, SDK `azure-ai-inference` déprécié, retrait 2026-08-26) vers
+> **`ChatOpenAI`** (`langchain-openai`) pointé sur l'endpoint `/openai/v1`. Conforme à
+> la préconisation Microsoft 2026 (SDK OpenAI + `/openai/v1`). `langchain-azure-ai` a
+> été retirée des dépendances. `make chat-test` renvoie une synthèse correcte (Kimi).
+> Voir `app/rag/llm.py:get_llm()`. La « Solution recommandée » ci-dessous est celle qui
+> a été appliquée.
+
 ## Symptôme
 
 `make chat-test` retourne `"Synthèse indisponible (erreur LLM)"` avec `status: "ok"`.

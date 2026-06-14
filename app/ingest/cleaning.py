@@ -24,8 +24,9 @@ def dedupe(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     - en fonction de leur URL.
 
     TODO:
-    - à optimiser pour le cas:
-     -->  où un même article de newsletter est publié sur plusieurs sites, en utilisant un hash du contenu de l'article plutôt que l'URL.
+    - à optimiser pour les cas où:
+     --> un même article de newsletter est publié sur plusieurs sites, en utilisant un hash du contenu de l'article plutôt que l'URL.
+     --> articles republiés avec un suffixe de version (cas dans arXiv)
     """
     seen: set[str] = set()
     result = []

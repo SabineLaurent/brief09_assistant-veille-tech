@@ -5,8 +5,8 @@ import logging
 from functools import lru_cache
 from typing import Any
 
-from langchain_azure_ai.chat_models import AzureAIChatCompletionsModel
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 
 from app.config import get_settings
 from app.schemas import ArticleCard, ChatResponse
@@ -24,18 +24,19 @@ SYSTEM_PROMPT = (
 
 
 @lru_cache(maxsize=1)
-def get_llm() -> AzureAIChatCompletionsModel | None:
+def get_llm() -> ChatOpenAI | None:
     settings = get_settings()
     if not settings.azure_ai_inference_endpoint or not settings.azure_ai_inference_api_key:
         logger.info("Azure AI inference not configured — running in degraded mode")
         return None
-    return AzureAIChatCompletionsModel(
-        endpoint=settings.azure_ai_inference_endpoint,
-        credential=settings.azure_ai_inference_api_key,
-        # `model=` (alias pydantic) et pas `model_name=` : le kwarg model_name est
-        # ignoré par le constructeur (champ aliasé), le client part alors sans nom
-        # de modèle et Azure répond NoModelName.
-        model=settings.azure_ai_inference_model,
+    # Endpoint Foundry compatible OpenAI (.../openai/v1) → SDK OpenAI via ChatOpenAI.
+    # L'ancien AzureAIChatCompletionsModel (azure-ai-inference, déprécié, retrait
+    # 2026-08-26) échouait avec "API version not supported" sur cet endpoint
+    # (cf. docs/bugs/azure-ai-endpoint-incompatible.md).
+    return ChatOpenAI(
+        base_url=settings.azure_ai_inference_endpoint,
+        api_key=settings.azure_ai_inference_api_key,
+        model=settings.azure_ai_inference_model,  # = nom du déploiement (ex. Kimi-K2.6)
         temperature=0.2,
     )
 
