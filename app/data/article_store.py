@@ -36,9 +36,9 @@ def upsert_article(article: dict[str, Any], db_path: str | None = None) -> bool:
                 article["updated_date"].isoformat() if article.get("updated_date") else None,
                 article["content"],
                 article["url"],
-                json.dumps(article["tags"]),
-                json.dumps(article.get("keywords", [])),
-                json.dumps(article["authors"]),
+                json.dumps(article["tags"], ensure_ascii=False),
+                json.dumps(article.get("keywords", []), ensure_ascii=False),
+                json.dumps(article["authors"], ensure_ascii=False),
                 article["ingested_at"].isoformat() if article["ingested_at"] else None,
             ),
         )
@@ -160,7 +160,12 @@ def update_article_records_with_llm_reviews(
                 SET keywords = ?, tags = ?, content = ?, llm_reviewed_at = CURRENT_TIMESTAMP
                 WHERE reference = ?
                 """,
-                (json.dumps(keywords), json.dumps(tags), generated_summary, reference),
+                (
+                    json.dumps(keywords, ensure_ascii=False),
+                    json.dumps(tags, ensure_ascii=False),
+                    generated_summary,
+                    reference,
+                ),
             )
         else:
             conn.execute(
@@ -169,5 +174,9 @@ def update_article_records_with_llm_reviews(
                 SET keywords = ?, tags = ?, llm_reviewed_at = CURRENT_TIMESTAMP
                 WHERE reference = ?
                 """,
-                (json.dumps(keywords), json.dumps(tags), reference),
+                (
+                    json.dumps(keywords, ensure_ascii=False),
+                    json.dumps(tags, ensure_ascii=False),
+                    reference,
+                ),
             )
