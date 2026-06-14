@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import sys
 from typing import NamedTuple
 
 from app.data.article_store import (
+    read_articles_missing_content,
     read_unreviewed_articles,
     update_article_records_with_llm_reviews,
 )
@@ -14,31 +16,24 @@ log = logging.getLogger(__name__)
 
 
 class ReviewRunResult(NamedTuple):
-    """Résumé d'une passe de review.
+    """Summary of a review pass.
 
-    reviewed + skipped == nombre d'articles non encore traités au début de la passe.
+    reviewed + skipped == number of articles fed to the pass.
     """
 
-    reviewed: int        # articles annotés et persistés (llm_reviewed_at renseigné)
-    skipped: int         # articles laissés NULL (agent non configuré / appel en échec) → repris plus tard
-    patched_chunks: int  # chunks dont la métadonnée Chroma a été rafraîchie
+    reviewed: int        # articles annotated and persisted (llm_reviewed_at set)
+    skipped: int         # articles left NULL (agent not configured / call failed) → retried later
+    patched_chunks: int  # chunks whose Chroma metadata was refreshed
 
 
-def run_review(limit: int | None = None) -> ReviewRunResult:
+def _review_and_persist(articles: list[dict]) -> ReviewRunResult:
     """
-    Annote les articles non encore traités : un appel LLM par article, persistance
-    SQLite, et rafraîchissement de la métadonnée Chroma quand c'est pertinent.
+    Run the review agent over the given articles and persist the results.
 
-    `limit` borne le nombre d'articles traités dans la passe (None = tous) — utile
-    pour lancer un lot de validation avant la passe complète.
-
-    Stratégie de reprise : un article dont la review échoue n'est pas marqué
-    (llm_reviewed_at reste NULL) et sera retenté à la passe suivante. La passe ne
-    s'interrompt jamais sur l'échec d'un article.
+    For each article: one LLM call, SQLite persistence, and a Chroma metadata refresh
+    when relevant. A failed review leaves llm_reviewed_at NULL so the article is retried
+    on a later pass; the loop never aborts on a single failure.
     """
-    articles = read_unreviewed_articles()
-    if limit is not None:
-        articles = articles[:limit]
     reviewed = 0
     skipped = 0
     patched_chunks = 0
@@ -58,43 +53,80 @@ def run_review(limit: int | None = None) -> ReviewRunResult:
         )
         reviewed += 1
 
-        # Si un résumé a été généré, le content a changé : l'article était sauté à
-        # l'indexation (encore en status='ingested') et sera indexé à neuf au prochain
-        # `make index` — inutile de patcher. Sinon le content est inchangé et déjà
-        # indexé : on rafraîchit seulement sa métadonnée (tags/keywords).
+        # When a summary was generated, the content changed: the article was skipped at
+        # indexing (still status='ingested') and will be indexed fresh on the next
+        # `make index` — no patch needed. Otherwise the content is unchanged and already
+        # indexed: only refresh its metadata (tags/keywords).
         if result.generated_summary is None:
             try:
                 patched_chunks += patch_article_metadata(
                     reference, result.tags, result.keywords
                 )
-            except Exception as exc:  # Chroma indisponible : ne pas avorter la passe
+            except Exception as exc:  # Chroma unreachable: do not abort the pass
                 log.warning("Metadata patch failed for %s — %s", reference, exc)
 
     return ReviewRunResult(reviewed=reviewed, skipped=skipped, patched_chunks=patched_chunks)
 
 
+def run_review(limit: int | None = None) -> ReviewRunResult:
+    """
+    Review every not-yet-processed article (llm_reviewed_at IS NULL).
+
+    `limit` caps the number of articles processed (None = all) — handy to run a
+    validation batch before the full pass.
+    """
+    articles = read_unreviewed_articles()
+    if limit is not None:
+        articles = articles[:limit]
+    return _review_and_persist(articles)
+
+
+def run_missing_content_review(limit: int | None = None) -> ReviewRunResult:
+    """
+    Review only the records that have no content yet (the most harmful ones).
+
+    With empty content, chunk("") returns [] and the indexer skips the article, so it
+    never reaches the vector store. This pass scrapes the source URL, generates a
+    summary that populates `content`, and annotates keywords/topics. These articles stay
+    status='ingested' and are indexed fresh on the next `make index`.
+
+    `limit` caps the number of articles processed (None = all).
+    """
+    articles = read_articles_missing_content()
+    if limit is not None:
+        articles = articles[:limit]
+    return _review_and_persist(articles)
+
+
 if __name__ == "__main__":
     """
-    Point d'entrée autonome pour lancer une passe de review :
+    Standalone entry point for a review pass:
         CHROMA_URL=http://localhost:8002 uv run python -m app.review.runner
+        CHROMA_URL=http://localhost:8002 uv run python -m app.review.runner missing
 
-     - lit les articles non encore traités (llm_reviewed_at IS NULL)
-     - annote chacun via l'agent (keywords + topics, + résumé si content vide)
-     - persiste en SQLite et rafraîchit la métadonnée Chroma des articles déjà indexés
+     - default: review every unreviewed article (llm_reviewed_at IS NULL)
+     - `missing`: review only the content-less records (scrape + summary)
 
-    Nécessite la config de l'agent (azure_ai_mini_agent_*) ; sinon tous les articles
-    sont « sautés » et repris plus tard.
+    Requires the agent config (azure_ai_mini_agent_*); otherwise every article is
+    "skipped" and retried later.
 
-    Le CHROMA_URL est nécessaire depuis l'hôte : le .env pointe sur "chromadb:8000"
-    (nom de service Docker), injoignable depuis le terminal où Chroma est publié sur
-    localhost:8002.
+    CHROMA_URL is needed from the host: .env points at "chromadb:8000" (Docker service
+    name), unreachable from the terminal where Chroma is published on localhost:8002.
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    result = run_review()
-    log.info(
-        "  → %d annotés, %d sautés (repris plus tard) → %d chunks patchés dans Chroma.",
-        result.reviewed,
-        result.skipped,
-        result.patched_chunks,
-    )
+    if "missing" in sys.argv[1:]:
+        result = run_missing_content_review()
+        log.info(
+            "  → %d content-less records completed, %d skipped (retried later).",
+            result.reviewed,
+            result.skipped,
+        )
+    else:
+        result = run_review()
+        log.info(
+            "  → %d annotated, %d skipped (retried later) → %d chunks patched in Chroma.",
+            result.reviewed,
+            result.skipped,
+            result.patched_chunks,
+        )

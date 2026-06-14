@@ -134,6 +134,25 @@ def read_unreviewed_articles(db_path: str | None = None) -> list[dict]:
         return [dict(row) for row in rows]
 
 
+def read_articles_missing_content(db_path: str | None = None) -> list[dict]:
+    """
+    Return unreviewed records that still have no content.
+
+    These are the most harmful rows for the knowledge base: with empty content,
+    chunk("") returns [] and the indexer skips them, so they never reach the vector
+    store. The review agent fixes them by scraping the source URL and generating a
+    summary that populates `content`.
+    """
+    path = db_path or get_settings().ingest_db_path
+    with sqlite3.connect(path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM article "
+            "WHERE (content IS NULL OR trim(content) = '') AND llm_reviewed_at IS NULL"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def update_article_records_with_llm_reviews(
     reference: str,
     keywords: list[str],
