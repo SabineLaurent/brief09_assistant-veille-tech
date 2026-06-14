@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     azure_ai_mini_agent_api_key: str = ""
     azure_ai_mini_agent_model: str = "gpt-5.4-mini"
 
+    # Topics disponibles : vocabulaire contrôlé, source de vérité UNIQUE partagée par
+    # (1) l'agent de review (cible de classification) et (2) l'endpoint /topics (filtres
+    # du frontend). Surchargeable en JSON via .env (comme ARXIV_TOPICS).
+    # ⚠️ Valeurs PROVISOIRES tant que la taxonomie définitive n'est pas tranchée.
+    available_topics: list[str] = Field(
+        default_factory=lambda: ["AI", "Sécurité", "Agentique", "Embarqué"]
+    )
+
     chroma_url: str = "http://chromadb:8000"
     chroma_collection: str = "articles"
     embedding_model: str = "intfloat/multilingual-e5-small"
