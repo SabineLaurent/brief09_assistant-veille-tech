@@ -15,5 +15,11 @@ CREATE TABLE IF NOT EXISTS article (
     -- au format ISO 8601 (ex: 2026-06-09T14:32:00). CURRENT_TIMESTAMP produit
     -- ce format automatiquement à l'insert.
     ingested_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    indexed_at     TEXT  -- NULL jusqu'à l'indexation dans Chroma
+    indexed_at     TEXT,  -- NULL jusqu'à l'indexation dans Chroma
+    -- NULL tant que l'agent LLM d'enrichissement (résumé/keywords/tags, TODO pt.3)
+    -- n'a pas traité l'article. Sert de signal de lecture : on enrichit ceux dont
+    -- llm_reviewed_at IS NULL. Orthogonal à `status` (un article peut être enrichi
+    -- indépendamment d'être indexé). Ajouté en dernière colonne pour coïncider avec
+    -- l'ALTER additif de migrate.py sur les bases existantes.
+    llm_reviewed_at TEXT
 );
