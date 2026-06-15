@@ -36,16 +36,22 @@ Suivi des étapes réalisées et décisions prises dans @docs/steps/
   
 - [x] 2. **Done** (2026-06-13, cf. `docs/steps/13-attribut-keywords.md`) — ajouter un attribut keywords à la table article. Et répercuter cette modification en adaptant le code de la suite du pipeline.
 
-3. mettre en place un agent pour déterminer la/les catégorie(s) de l'article,  générer les mot clés adaptés.
-   - dans un premier temps l'agent sera activable manuellement.
-   - choisir un modele adapté à la tâche.
-   - les catégories disponibles pour arXiv sont les suivantes et uniquement les suivantes:
-     - AI
-     - Sécurité
-     - Agentique
-     - Embarqué
-     TODO: A modifié et/ou compléter celon les sources futures ajoutées.
-   - les mots clés seront générés par l'agent selon le contenu de l'article source, puis enregistré en db sqlite sous l'attribut keywords de la table article.
+- [x] 3. **Fait (2026-06-15)** — agent de review (`app/review/`) qui classe l'article
+  dans le vocabulaire contrôlé `available_topics` (`AI, Security, Agentic, Embedded`) et
+  génère les `keywords`, enregistrés en SQLite. Activable manuellement.
+   - Deux passes, séparées par l'indexation (ligne de partage = « touche-t-on
+     l'embedding ? ») :
+     - **blocking** (`make review-blocking`, AVANT index) : récupère titre/contenu des
+       bloquants — change l'embedding, donc avant vectorisation.
+     - **classique** (`make review`, APRÈS index) : n'écrit que `tags`/`keywords` →
+       métadonnée pure, poussée dans Chroma via `patch_article_metadata` **sans
+       ré-embedder** (`collection.update`, pas d'`embeddings`).
+   - Traçabilité : colonne `chroma_synced_at` stampée par `mark_chroma_synced` quand le
+     patch Chroma a effectivement rafraîchi des chunks (orthogonale à `llm_reviewed_at`).
+     Détail dans `docs/notes/sync-metadonnees-chroma-post-review.md`.
+   - Tests : `tests/test_chroma_sync_stamp.py`, `tests/test_review_logic.py`.
+   - **Reste** : le vocabulaire est encore à arbitrer/compléter selon les sources futures
+     (cf. amélioration #11, alignement des taxonomies front/review/arXiv).
 
 4. Dans fresh_news.api, je veux récupérer uniquement les articles du jour et s'il n'y en a pas, ceux du jours précédents.
 5. Je veux transformer rss_feed en ingester d'article.
@@ -174,3 +180,14 @@ Suivi des étapes réalisées et décisions prises dans @docs/steps/
     - Piste : distinguer permanent (4xx hors 429) de transitoire (timeout/5xx/429) — il
       faudrait que le `Scraper` remonte le statut HTTP au lieu d'avaler en `[]` ; ou un
       compteur de tentatives → `rejected` après N passes.
+    - **Reconfirmé live (2026-06-15, `make review-blocking`)** : 7 blockers `ingested`
+      tous **bon titre + contenu maigre** (50–149 car., < seuil 150), sources paywall
+      Bloomberg/NYT/WSJ (403/401) + VentureBeat (429). Recoupe directement #12 : leur
+      titre est exploitable, donc la sortie privilégiée est **indexer sur le titre seul**
+      (signal faible mais réel, cf. point 7) quand l'échec est permanent — pas reboucler,
+      pas rejeter. Prérequis commun : le `Scraper` doit remonter le statut HTTP. **Décidé
+      de noter et différer** (pas de code ce jour).
+    - **Design tranché (2026-06-15)** : matrice complète (titre ×{valide, inexploitable},
+      content ×{valide, blurb, absent}) + issues de scraping (transitoire / 200-vide /
+      permanent) figée dans `docs/notes/matrice-review-blocker-et-scraping.md`. Couvre
+      #12 et #13. **Reste à implémenter.**
