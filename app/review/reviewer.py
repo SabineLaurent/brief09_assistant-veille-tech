@@ -26,23 +26,34 @@ class _Review(BaseModel):
     Sortie lorsque le content est suffisant : on annote sans résumer.
     """
 
-    keywords: list[str] = Field(description="content keywords (the article's actual subject)")
-    topics: list[str] = Field(description="topics chosen from the allowed list")
+    keywords: list[str] = Field(
+        description=(
+            "3 to 6 concise keywords (1-3 words each) naming the subject of the provided "
+            "article text; prefer the canonical term over the article's full phrasing"
+        )
+    )
+    topics: list[str] = Field(description="topics from the allowed list; empty if none apply")
 
 
 class _ReviewWithSummary(BaseModel):
     """
-    Sortie lorsque le content est vide ou trop court : on résume d'abord, puis on annote.
+    Output when content is empty or too short: summarize first, then annotate.
 
-    `summary` est volontairement le premier champ : en sortie structurée, le modèle
-    remplit les champs dans l'ordre du schéma. Rédiger le résumé avant les keywords
-    fait découler ces derniers du résumé. C'est pourquoi ce modèle n'hérite pas de
-    `_Review` (deux champs sont dupliqués, à dessein).
+    `summary` is deliberately the first field: in structured output the model fills
+    fields in schema order. Writing the summary first forces the model to digest the
+    text before emitting the keywords, which still derive from the article itself.
+    This is why this model does not inherit from `_Review` (two fields are duplicated,
+    on purpose).
     """
 
     summary: str = Field(description="summary of the article, abstract level, a few sentences")
-    keywords: list[str] = Field(description="keywords reflecting the central subject of the summary")
-    topics: list[str] = Field(description="topics chosen from the allowed list")
+    keywords: list[str] = Field(
+        description=(
+            "3 to 6 concise keywords (1-3 words each) naming the subject of the provided "
+            "article text; prefer the canonical term over a full phrase"
+        )
+    )
+    topics: list[str] = Field(description="topics from the allowed list; empty if none apply")
 
 
 @dataclass
@@ -82,17 +93,35 @@ def get_mini_agent() -> ChatOpenAI | None:
     )
 
 
+_TOPIC_GLOSSES = {
+    "AI": "machine learning, models, LLMs, training/inference, AI research and products.",
+    "Security": "vulnerabilities, attacks, defense, cryptography, privacy.",
+    "Agentic": "autonomous agents, tool-use, multi-agent systems, agent orchestration.",
+    "Embedded": "on-device/edge computing, hardware, IoT, tinyML, firmware.",
+}
+
+
 def _build_system_prompt(available_topics: list[str]) -> str:
+    # Gloss each allowed topic when we have a definition; fall back to the bare name
+    # so an added topic still appears in the list even before it gets a gloss.
+    topic_lines = "\n".join(
+        f"  - {t}: {_TOPIC_GLOSSES[t]}" if t in _TOPIC_GLOSSES else f"  - {t}"
+        for t in available_topics
+    )
     return (
         "You are an English-speaking technology-watch annotation agent for Nauda Palisse.\n"
-        "For the given article, produce keywords describing its actual subject, and "
-        "one or more topics.\n"
-        "Choose topics ONLY from this list: "
-        f"{', '.join(available_topics)}.\n"
-        "Write the summary (if requested) and the keywords STRICTLY IN ENGLISH, "
-        "staying faithful to the article's tone, style and vocabulary.\n"
-        "If a summary is requested, write it first (a few sentences, abstract level), "
-        "then keywords reflecting its central subject. Stay factual, do not invent anything."
+        "Annotate the given article with topics and keywords.\n\n"
+        "TOPICS — choose ONLY from this controlled list, picking every one that genuinely "
+        "applies (or none if none fit; never force a match):\n"
+        f"{topic_lines}\n\n"
+        "KEYWORDS — 3 to 6, concise (1-3 words each), naming the subject of the provided "
+        "article text (its title and content). Prefer the canonical term over the article's "
+        "full phrasing (e.g. 'prompt injection', not 'brain-prompt injection attacks on "
+        "BCI-to-agent pipelines'). Favour specific named technologies, methods or products "
+        "over generic words. No sentences, no duplicates, do not repeat the topic names.\n\n"
+        "SUMMARY (only when requested) — write it FIRST, a few sentences at abstract level.\n\n"
+        "Write everything STRICTLY IN ENGLISH. Stay factual and faithful to the article's "
+        "tone and vocabulary; do not invent anything."
     )
 
 
