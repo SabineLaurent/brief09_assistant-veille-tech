@@ -36,11 +36,12 @@ class Article(BaseModel):
 
     url: str
 
-    # Catégorie(s) thématique(s) de l'article = topics du frontend
-    tags: list[str]
+    # Catégorie(s) thématique(s) de l'article, choisie(s) dans le vocabulaire contrôlé.
+    # Vides à l'ingestion ; remplies ensuite par l'agent de review.
+    tags: list[str] = Field(default_factory=list)
 
-    # Mots-clés de contenu (sujet réel de l'article), distincts des tags (provenance/
-    # requête). Vides à l'ingestion ; remplis ensuite par l'agent (TODO).
+    # Mots-clés de contenu (sujet réel de l'article), distincts des tags (classification).
+    # Vides à l'ingestion ; remplis ensuite par l'agent de review.
     keywords: list[str] = Field(default_factory=list)
 
     authors: list[str]

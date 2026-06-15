@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import httpx
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 from app.config import get_settings
 from app.data.article_store import get_watermark
@@ -15,9 +15,6 @@ from app.ingest.cleaning import clean_html_to_markdown
 from app.ingest.article_models import TldrArticle
 
 log = logging.getLogger(__name__)
-
-
-
 
 
 @dataclass
@@ -56,8 +53,8 @@ class TldrScraper:
             liste de TldrArticle (toutes éditions confondues), chacun de la forme :
                 reference="<sha1 de l'url sans tracking>", title="...",
                 source="tldr.tech", published_date=datetime|None,
-                content="<résumé en Markdown>", url="https://...",
-                tags=["<edition>", "<catégorie>"], authors=[]
+                content="<résumé en Markdown>", url="https://...", authors=[]
+            tags et keywords restent vides : c'est l'agent de review qui les renseigne.
             Liste vide si toutes les URLs ont échoué.
         """
         articles: list[TldrArticle] = []
@@ -71,8 +68,7 @@ class TldrScraper:
                     resp = client.get(url)
                     resp.raise_for_status()
                     date = _extract_date(url)
-                    edition = _extract_edition(url)
-                    articles.extend(_parse_newsletter(resp.text, date, edition))
+                    articles.extend(_parse_newsletter(resp.text, date))
                 except Exception as e:
                     log.warning("TldrScraper: failed to fetch %s — %s", url, e)
         return articles
@@ -109,9 +105,7 @@ class TldrScraper:
         return self.run(urls)
 
 
-def missing_edition_dates(
-    watermark: datetime | None, today: date, start_date: date
-) -> list[str]:
+def missing_edition_dates(watermark: datetime | None, today: date, start_date: date) -> list[str]:
     """Calcule les dates d'édition TLDR restant à scraper — ingestion incrémentale.
 
     Entrée :
@@ -144,16 +138,7 @@ def _extract_date(url: str) -> str:
     return match.group(1) if match else ""
 
 
-def _extract_edition(url: str) -> str:
-    """
-    Entrée : URL de newsletter, ex. "https://tldr.tech/ai/2026-06-10"
-    Sortie : l'édition (avant-dernier segment du chemin), ex. "ai" ("" si introuvable).
-    """
-    parts = url.rstrip("/").split("/")
-    return parts[-2] if len(parts) >= 2 else ""
-
-
-def _parse_newsletter(html: str, date: str, edition: str) -> list[TldrArticle]:
+def _parse_newsletter(html: str, date: str) -> list[TldrArticle]:
     """
     Parse le HTML d'une newsletter TLDR en articles normalisés.
 
@@ -162,7 +147,6 @@ def _parse_newsletter(html: str, date: str, edition: str) -> list[TldrArticle]:
                <section> par catégorie, contenant des <article> avec un lien
                a.font-bold>h3 pour le titre et un div.newsletter-html pour le résumé)
         date : date de l'édition au format "YYYY-MM-DD" (peut être "")
-        edition : nom de l'édition, ex. "ai"
 
     Sortie :
         liste de TldrArticle (voir TldrScraper.run pour la forme exacte).
@@ -180,8 +164,6 @@ def _parse_newsletter(html: str, date: str, edition: str) -> list[TldrArticle]:
             pass
 
     for section in soup.find_all("section"):
-        category = _extract_category(section)
-
         for article_tag in section.find_all("article"):
             link = article_tag.find("a", class_="font-bold")
             if not link:
@@ -204,31 +186,16 @@ def _parse_newsletter(html: str, date: str, edition: str) -> list[TldrArticle]:
             clean_url = source_url.split("?utm_source=")[0]
             reference = hashlib.sha1(clean_url.encode()).hexdigest()
 
-            tags = [edition]
-            if category:
-                tags.append(category)
-
-            articles.append(TldrArticle(
-                reference=reference,
-                title=title,
-                source="tldr.tech",
-                published_date=published_date,
-                content=content,
-                url=source_url,
-                tags=tags,
-                authors=[],
-            ))
+            articles.append(
+                TldrArticle(
+                    reference=reference,
+                    title=title,
+                    source="tldr.tech",
+                    published_date=published_date,
+                    content=content,
+                    url=source_url,
+                    authors=[],
+                )
+            )
 
     return articles
-
-
-def _extract_category(section: Tag) -> str:
-    """
-    Entrée : un élément <section> de la newsletter (objet BeautifulSoup Tag).
-    Sortie : le texte du <header><h3>, ex. "Big Tech & Startups" ("" si absent).
-    """
-    header = section.find("header")
-    if not header:
-        return ""
-    h3 = header.find("h3")
-    return h3.get_text(strip=True) if h3 else ""

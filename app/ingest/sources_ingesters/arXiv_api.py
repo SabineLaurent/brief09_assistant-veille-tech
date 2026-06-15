@@ -52,8 +52,6 @@ class ArXivApiIngester:
                     "published": "2025-11-27T18:59:59Z",
                     "authors": ["Alice Martin", "Bob Chen"],
                     "link": "http://arxiv.org/abs/2411.18583v1",
-                    "category": "cs.AI",          # recopié depuis l'entrée
-                    "keywords": ["deep learning"]  # recopié depuis l'entrée
                 }
         """
         # ======= Construction de la requête de recherche ========
@@ -84,7 +82,7 @@ class ArXivApiIngester:
         raw_entries = self._xml_to_raw_entries(response.content)
         log.info("  → %d articles récupérés", len(raw_entries))
 
-        return [self._entry_to_dict(entry, category, keywords) for entry in raw_entries]
+        return [self._entry_to_dict(entry) for entry in raw_entries]
 
 
     def _xml_to_raw_entries(self, content: bytes) -> list[etree._Element]:
@@ -102,22 +100,18 @@ class ArXivApiIngester:
         return root.findall(_tag("entry"))
 
 
-    def _entry_to_dict(
-        self, entry: etree._Element, category: str, keywords: list[str]
-    ) -> dict[str, Any]:
+    def _entry_to_dict(self, entry: etree._Element) -> dict[str, Any]:
         """
         Convertit un élément <entry> en dictionnaire.
 
         Entrée :
             entry : élément lxml <entry> du flux Atom arXiv
-            category : catégorie arXiv de la requête d'origine, ex. "cs.AI"
-            keywords : mots-clés de la requête d'origine, ex. ["deep learning"]
 
         Sortie :
-            dict brut {id, title, summary, published, authors, link, category,
-            keywords} — voir fetch_articles pour un exemple complet. Les champs
-            texte absents du XML valent "" ; authors/link sont extraits des
-            sous-éléments <author><name> et <link rel="alternate">.
+            dict brut {id, title, summary, published, updated, authors, link} —
+            voir fetch_articles pour un exemple complet. Les champs texte absents
+            du XML valent "" ; authors/link sont extraits des sous-éléments
+            <author><name> et <link rel="alternate">.
         """
 
         def text(name: str) -> str:
@@ -145,8 +139,6 @@ class ArXivApiIngester:
             "updated": text("updated"),
             "authors": authors,
             "link": link,
-            "category": category,
-            "keywords": keywords,
         }
 
 
@@ -155,7 +147,6 @@ class ArXivApiIngester:
         Normalise les données d'un article arXiv.
          - Extrait l'ID arXiv de l'URL (ex: "2411.18583v1")
          - Convertit la date de publication en objet datetime
-         - Construit une liste de tags à partir de la catégorie + les mots-clés
 
         Entrée :
             article : dict brut produit par _entry_to_dict (voir fetch_articles
@@ -166,8 +157,10 @@ class ArXivApiIngester:
                 reference="2411.18583v1", title="...", source="arXiv",
                 published_date=datetime|None, content="<abstract>",
                 url="http://arxiv.org/abs/2411.18583v1",
-                tags=["cs.AI"], keywords=["deep learning", ...],
                 authors=["Alice Martin", ...]
+
+        tags et keywords sont laissés vides : c'est l'agent de review qui les
+        renseigne, à partir du contenu.
         """
         arxiv_id = article["id"].split("/abs/")[-1]  # ex: "2411.18583v1"
 
@@ -185,10 +178,6 @@ class ArXivApiIngester:
             updated_date=updated_dt,
             content=article["summary"],
             url=article["link"],
-            # tags = provenance (catégorie arXiv de la requête) ; keywords = mots-clés
-            # de recherche ayant trouvé l'article (déplacés depuis tags, cf. TODO pt.2).
-            tags=[article["category"]],
-            keywords=article["keywords"],
             authors=article["authors"],
         )
 

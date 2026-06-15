@@ -101,9 +101,7 @@ class RssFeedIngester:
                         published = _entry_datetime(entry)
                         if published is not None and published.date() < floor:
                             continue
-                        articles.append(
-                            self._normalize_entry(entry, feed_title, feed.topic)
-                        )
+                        articles.append(self._normalize_entry(entry, feed_title))
                         kept += 1
                     log.info("[rss] %s — %d article(s)", feed.url, kept)
                 except Exception as e:
@@ -112,17 +110,15 @@ class RssFeedIngester:
         log.info("  → %d articles RSS récupérés (%d flux)", len(articles), len(feeds))
         return articles
 
-    def _normalize_entry(
-        self, entry: Any, feed_title: str, topic: str | None
-    ) -> RssArticle:
+    def _normalize_entry(self, entry: Any, feed_title: str) -> RssArticle:
         """Convertit une entrée RSS en RssArticle normalisé.
 
         Sortie :
             RssArticle de la forme :
                 reference="<sha1 de l'url sans query>", title="...",
                 source="<titre du flux>", published_date=datetime|None,
-                content="<résumé en Markdown>", url="https://...",
-                tags=["<topic>"] (vide si pas de topic), keywords=[], authors=[]
+                content="<résumé en Markdown>", url="https://...", authors=[]
+            tags et keywords restent vides : c'est l'agent de review qui les renseigne.
         """
         url = entry.get("link", "")
         # reference = clé de dédup : on retire la query (tracking utm…) pour qu'un
@@ -130,10 +126,6 @@ class RssFeedIngester:
         clean_url = url.split("?")[0]
         reference = hashlib.sha1(clean_url.encode()).hexdigest()
         summary = entry.get("summary", "")
-
-        # tags = provenance thématique du flux (topic de la config). PAS de tag « New » :
-        # le tag « New » est réservé au rail frais (runtime/fresh_news.py).
-        tags = [topic] if topic else []
 
         return RssArticle(
             reference=reference,
@@ -143,8 +135,6 @@ class RssFeedIngester:
             published_date=_entry_datetime(entry),
             content=clean_html_to_markdown(summary) if summary else "",
             url=url,
-            tags=tags,
-            keywords=[],
             authors=[],
         )
 
