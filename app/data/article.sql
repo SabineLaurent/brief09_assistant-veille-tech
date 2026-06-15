@@ -19,7 +19,10 @@ CREATE TABLE IF NOT EXISTS article (
     -- NULL tant que l'agent LLM d'enrichissement (résumé/keywords/tags, TODO pt.3)
     -- n'a pas traité l'article. Sert de signal de lecture : on enrichit ceux dont
     -- llm_reviewed_at IS NULL. Orthogonal à `status` (un article peut être enrichi
-    -- indépendamment d'être indexé). Ajouté en dernière colonne pour coïncider avec
-    -- l'ALTER additif de migrate.py sur les bases existantes.
-    llm_reviewed_at TEXT
+    -- indépendamment d'être indexé).
+    llm_reviewed_at TEXT,
+    -- NULL until the reviewed tags/keywords have been pushed into Chroma metadata.
+    -- Audit stamp for the post-index classic-review sync: the review→sync chaining
+    -- drives what gets synced; this column only records that it happened.
+    chroma_synced_at TEXT
 );

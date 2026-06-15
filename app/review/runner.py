@@ -5,6 +5,7 @@ import sys
 from typing import NamedTuple
 
 from app.data.article_store import (
+    mark_chroma_synced,
     read_unreviewed_articles,
     update_article_records_with_llm_reviews,
     update_article_status,
@@ -69,9 +70,12 @@ def _review_and_persist(articles: list[dict]) -> ReviewRunResult:
         # patch.
         if result.generated_summary is None and result.recovered_title is None:
             try:
-                patched_chunks += patch_article_metadata(
-                    reference, result.tags, result.keywords
-                )
+                n = patch_article_metadata(reference, result.tags, result.keywords)
+                patched_chunks += n
+                # Stamp the audit trail only when chunks were actually refreshed: a
+                # not-yet-indexed record returns 0, so there is nothing synced to record.
+                if n > 0:
+                    mark_chroma_synced(reference)
             except Exception as exc:  # Chroma unreachable: do not abort the pass
                 log.warning("Metadata patch failed for %s — %s", reference, exc)
 

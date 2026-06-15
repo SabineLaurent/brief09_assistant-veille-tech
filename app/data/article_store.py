@@ -184,3 +184,21 @@ def update_article_records_with_llm_reviews(
             f"UPDATE article SET {', '.join(columns)} WHERE reference = ?",
             values,
         )
+
+
+def mark_chroma_synced(reference: str, db_path: str | None = None) -> None:
+    """
+    Stamp chroma_synced_at: the article's reviewed tags/keywords have been pushed into
+    its Chroma chunk metadata.
+
+    Pure audit trail for the post-index review→sync path — it records that the sync
+    happened, it does NOT drive any selection (the review pass decides what gets synced).
+    Orthogonal to llm_reviewed_at: an article can be reviewed (SQLite annotated) without
+    its Chroma metadata being refreshed yet (e.g. Chroma unreachable during the pass).
+    """
+    path = db_path or get_settings().ingest_db_path
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "UPDATE article SET chroma_synced_at = CURRENT_TIMESTAMP WHERE reference = ?",
+            (reference,),
+        )
