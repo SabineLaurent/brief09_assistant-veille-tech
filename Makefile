@@ -1,4 +1,4 @@
-.PHONY: up down logs install test fmt lint typecheck pipeline-e2e ingest arxiv-ingest tldr-ingest arxiv tldr index chat-test chromadelete chromareset
+.PHONY: up down logs install test fmt lint typecheck pipeline-e2e ingest arxiv-ingest tldr-ingest arxiv-e2e tldr-e2e review-blocking review index chat-test chromadelete chromareset
 
 install:
 	uv sync
@@ -28,7 +28,7 @@ typecheck:
 migrate:
 	uv run python -m app.data.migrate
 
-pipeline-e2e: ingest index
+pipeline-e2e: ingest review-blocking index
 
 ingest: arxiv-ingest tldr-ingest
 
@@ -38,12 +38,23 @@ arxiv-ingest:
 tldr-ingest:
 	PYTHONPATH=. uv run python scripts/ingest_cli.py tldr
 
+# Récupère les bloquants (titre déchet et/ou contenu maigre) AVANT l'index : scrape la
+# source pour relire le titre / résumer le contenu, rejette ce qui n'est pas récupérable.
+# Dégrade proprement si l'agent mini n'est pas configuré (tout est skippé, retenté plus tard).
+review-blocking:
+	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python -m app.review.runner blocking
+
+# Passe d'annotation complète (keywords/tags de tous les non-reviewés), APRÈS l'index :
+# patche la métadonnée des articles déjà indexés. Hors chemin critique de fraîcheur.
+review:
+	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python -m app.review.runner
+
 index:
 	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python scripts/ingest_cli.py index
 
-arxiv: arxiv-ingest index
+arxiv-e2e: arxiv-ingest review-blocking index
 
-tldr: tldr-ingest index
+tldr-e2e: tldr-ingest review-blocking index
 
 chromareset:
 	CHROMA_URL=http://localhost:8002 uv run python -c "\
