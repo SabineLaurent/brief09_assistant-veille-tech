@@ -28,7 +28,9 @@ typecheck:
 migrate:
 	uv run python -m app.data.migrate
 
-pipeline-e2e: ingest review-blocking index
+# Full chain: collect → recover blockers → index → classic review (annotate + sync
+# Chroma metadata). The classic review runs last, after the index is reachable.
+pipeline-e2e: ingest review-blocking index review
 
 ingest: arxiv-ingest tldr-ingest
 
