@@ -5,7 +5,7 @@ import logging
 from typing import NamedTuple
 
 from app.data.article_store import update_article_status
-from app.ingest.cleaning import chunk
+from app.ingest.cleaning import chunk, has_enough_content, is_usable_title
 from app.rag.chroma_client import get_collection
 from app.rag.retrieval import get_embedder
 
@@ -15,11 +15,11 @@ log = logging.getLogger(__name__)
 class IndexResult(NamedTuple):
     """Résumé d'un run d'indexation (les 3 compteurs d'articles + le total de chunks).
 
-    indexed + skipped + errors == nombre d'articles reçus : aucun n'est « perdu ».
+    indexed + held + errors == nombre d'articles reçus : aucun n'est « perdu ».
     """
 
     indexed: int  # articles réellement indexés dans Chroma
-    skipped: int  # articles sautés faute de contenu (chunk vide) → restent 'ingested'
+    held: int     # blockers left as 'ingested' (unusable title and/or thin content)
     errors: int   # articles passés en status='error' (exception pendant l'indexation)
     chunks: int   # total de chunks upsertés dans Chroma
 
@@ -28,16 +28,24 @@ def index_articles(articles: list[dict]) -> IndexResult:
     collection = get_collection()
     total_chunks = 0
     indexed = 0
-    skipped = 0
+    held = 0
     errors = 0
 
     for article in articles:
         reference = article.get("reference", "?")
         try:
-            chunks = chunk(article.get("content", ""))
-            if not chunks:
-                skipped += 1
+            title = article.get("title", "") or ""
+            content = article.get("content", "") or ""
+
+            # Route, don't reject: only fully valid records (usable title AND enough
+            # content) get indexed. Anything else is held as 'ingested' — a blocker for
+            # the review pass to recover (real title via scrape, content via summary) or
+            # to terminally reject. The indexer never scrapes, calls the LLM, or rejects.
+            if not (is_usable_title(title) and has_enough_content(content)):
+                held += 1
                 continue
+
+            chunks = chunk(content)
 
             # tags/keywords sont stockés en JSON dans SQLite → on les relit puis on
             # ré-encode en chaîne ", " (Chroma n'accepte pas de liste en métadonnée;
@@ -58,7 +66,13 @@ def index_articles(articles: list[dict]) -> IndexResult:
             }
 
             ids = [f"{reference}::{i}" for i in range(len(chunks))]
-            vecs = get_embedder().encode(chunks, normalize_embeddings=True)
+
+            # Prefix the title to each chunk before embedding so the article's subject is
+            # part of every vector — including middle chunks that never restate it. Only
+            # the EMBEDDED text carries the title; the stored document stays the raw chunk,
+            # so the retrieval snippet is not polluted by a repeated title.
+            embed_texts = [f"{title}\n\n{c}" for c in chunks]
+            vecs = get_embedder().encode(embed_texts, normalize_embeddings=True)
             embeddings = [v.tolist() for v in vecs]
             metadatas = [metadata] * len(chunks)
 
@@ -72,7 +86,7 @@ def index_articles(articles: list[dict]) -> IndexResult:
             update_article_status(reference, "error")
             errors += 1
 
-    return IndexResult(indexed=indexed, skipped=skipped, errors=errors, chunks=total_chunks)
+    return IndexResult(indexed=indexed, held=held, errors=errors, chunks=total_chunks)
 
 
 def patch_article_metadata(reference: str, tags: list[str], keywords: list[str]) -> int:
@@ -134,9 +148,9 @@ if __name__ == "__main__":
     else:
         result = index_articles(articles)
         log.info(
-            "  → %d indexés, %d sautés (contenu vide), %d en erreur → %d chunks dans Chroma.",
+            "  → %d indexés, %d bloqués (titre/contenu insuffisant), %d en erreur → %d chunks dans Chroma.",
             result.indexed,
-            result.skipped,
+            result.held,
             result.errors,
             result.chunks,
         )

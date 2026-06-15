@@ -36,7 +36,7 @@ def index() -> None:
         raise typer.Exit()
     result = index_articles(articles)
     typer.echo(
-        f"{result.indexed} indexés, {result.skipped} sautés (contenu vide), "
+        f"{result.indexed} indexés, {result.held} bloqués (titre/contenu insuffisant), "
         f"{result.errors} en erreur → {result.chunks} chunks dans Chroma."
     )
 

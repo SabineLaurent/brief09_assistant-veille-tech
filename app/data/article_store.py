@@ -122,33 +122,21 @@ def read_ingested_articles(db_path: str | None = None) -> list[dict]:
 def read_unreviewed_articles(db_path: str | None = None) -> list[dict]:
     """
     Retourne les articles que l'agent de review n'a pas encore traités
-    (llm_reviewed_at IS NULL).
+    (llm_reviewed_at IS NULL), en excluant ceux déjà rejetés définitivement.
 
     `llm_reviewed_at` est le signal de lecture par l'agent de completion des enregistrements d'articles:
     NULL = pas encore complété. On teste avec IS NULL, car en SQL rien n'est « = NULL », pas même NULL.
-    """
-    path = db_path or get_settings().ingest_db_path
-    with sqlite3.connect(path) as conn:
-        conn.row_factory = sqlite3.Row
-        rows = conn.execute("SELECT * FROM article WHERE llm_reviewed_at IS NULL").fetchall()
-        return [dict(row) for row in rows]
 
-
-def read_articles_missing_content(db_path: str | None = None) -> list[dict]:
-    """
-    Return unreviewed records that still have no content.
-
-    These are the most harmful rows for the knowledge base: with empty content,
-    chunk("") returns [] and the indexer skips them, so they never reach the vector
-    store. The review agent fixes them by scraping the source URL and generating a
-    summary that populates `content`.
+    Le filtre `status != 'rejected'` évite de re-traiter en boucle un article rejeté
+    (statut terminal) : un reject ne touche pas `llm_reviewed_at`, donc sans ce garde-fou
+    l'article ressortirait à chaque passe. COALESCE protège un `status` éventuellement NULL.
     """
     path = db_path or get_settings().ingest_db_path
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM article "
-            "WHERE (content IS NULL OR trim(content) = '') AND llm_reviewed_at IS NULL"
+            "WHERE llm_reviewed_at IS NULL AND COALESCE(status, '') != 'rejected'"
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -158,44 +146,41 @@ def update_article_records_with_llm_reviews(
     keywords: list[str],
     tags: list[str],
     generated_summary: str | None = None,
+    title: str | None = None,
     db_path: str | None = None,
 ) -> None:
     """
-    Écrit le résultat de l'agent de review et horodate llm_reviewed_at.
+    Write the review agent's result and stamp llm_reviewed_at.
 
-    keywords/tags sont stockés en JSON (comme dans upsert_article). Le
-    `generated_summary` n'est fourni que pour les articles SANS content: dans
-    ce cas on l'écrit dans la colonne `content`. Si generated_summary is None,
-    on laisse le content source intact et on ne met à jour que keywords/tags +
-    l'horodatage (le résumé LLM ne sert qu'à combler un content vide, jamais à
-    écraser un contenu source fidèle, cf. docs/steps/18).
+    keywords/tags are always written (stored as JSON, like upsert_article). The other
+    fields are written ONLY when the review recovered them, so a faithful source value
+    is never overwritten by a blank:
+      - generated_summary → column `content` (only to fill an empty/thin content)
+      - title             → column `title`   (only to replace a junk title recovered
+                            from the source page)
+
+    The SET clause is built dynamically from the provided fields: the column names are
+    fixed literals (never user input) and every value stays parameterized (`?`), so this
+    is injection-safe.
     """
     path = db_path or get_settings().ingest_db_path
+
+    columns = ["keywords = ?", "tags = ?"]
+    values: list[Any] = [
+        json.dumps(keywords, ensure_ascii=False),
+        json.dumps(tags, ensure_ascii=False),
+    ]
+    if generated_summary is not None:
+        columns.append("content = ?")
+        values.append(generated_summary)
+    if title is not None:
+        columns.append("title = ?")
+        values.append(title)
+    columns.append("llm_reviewed_at = CURRENT_TIMESTAMP")
+
+    values.append(reference)
     with sqlite3.connect(path) as conn:
-        if generated_summary is not None:
-            conn.execute(
-                """
-                UPDATE article
-                SET keywords = ?, tags = ?, content = ?, llm_reviewed_at = CURRENT_TIMESTAMP
-                WHERE reference = ?
-                """,
-                (
-                    json.dumps(keywords, ensure_ascii=False),
-                    json.dumps(tags, ensure_ascii=False),
-                    generated_summary,
-                    reference,
-                ),
-            )
-        else:
-            conn.execute(
-                """
-                UPDATE article
-                SET keywords = ?, tags = ?, llm_reviewed_at = CURRENT_TIMESTAMP
-                WHERE reference = ?
-                """,
-                (
-                    json.dumps(keywords, ensure_ascii=False),
-                    json.dumps(tags, ensure_ascii=False),
-                    reference,
-                ),
-            )
+        conn.execute(
+            f"UPDATE article SET {', '.join(columns)} WHERE reference = ?",
+            values,
+        )

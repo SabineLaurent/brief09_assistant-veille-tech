@@ -9,15 +9,10 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
+from app.ingest.cleaning import has_enough_content, is_usable_title
 from app.ingest.scraper import Scraper
 
 logger = logging.getLogger(__name__)
-
-# En dessous de ce seuil (en caractères), le content est jugé trop pauvre pour servir
-# de base : on scrape la page source et on fait générer un résumé. À ~150 caractères
-# (≈ 2-3 phrases), on conserve les brèves déjà exploitables et on ne scrape que les
-# articles vraiment maigres (titre + lien, ou extrait d'une phrase).
-MIN_CONTENT_CHARS = 150
 
 
 # ── Schémas de sortie structurée ──────────────────────────────────────────────
@@ -53,12 +48,18 @@ class _ReviewWithSummary(BaseModel):
 @dataclass
 class ReviewResult:
     """
-    Résultat de travail d'un article, consommé par le runner pour la persistance.
+    Outcome of reviewing one article, consumed by the runner for persistence.
+
+    `rejected` is the terminal verdict: the record can never become indexable, so the
+    runner sets status='rejected' and ignores the other fields. Otherwise the runner
+    persists keywords/tags plus, when set, the recovered title and/or generated summary.
     """
 
     keywords: list[str]
-    tags: list[str]  # topics retenus, filtrés contre available_topics
-    generated_summary: str | None = None  # renseigné uniquement si le content était vide
+    tags: list[str]                       # topics kept, filtered against available_topics
+    generated_summary: str | None = None  # set only when content was empty/thin and recovered
+    recovered_title: str | None = None    # set only when a junk title was read from the source
+    rejected: bool = False                # True → terminal reject (record can never be indexed)
 
 
 @lru_cache(maxsize=1)
@@ -95,37 +96,40 @@ def _build_system_prompt(available_topics: list[str]) -> str:
     )
 
 
-def _resolve_text(content: str, url: str, title: str) -> tuple[str, bool]:
+def _scrape(url: str) -> dict | None:
     """
-    Détermine le texte à annoter et s'il faut générer un résumé.
+    Fetch the source page once and return the scraped record, or None if unreachable.
 
-    C'est le code, et non le LLM, qui décide quand scraper la page source.
-    Retourne (text, needs_summary) :
-      - content suffisant     → (content, False)
-      - sinon page scrapée OK → (texte de la page, True)
-      - sinon                 → (titre, True)
+    None means the Scraper yielded nothing (HTTP error, timeout, network issue) — an
+    ambiguous, possibly transient failure the caller treats as "retry later". A returned
+    dict means the page was reached (HTTP 200); its `content` may still be empty (e.g. a
+    JS-rendered page), which the caller treats as "reached but nothing usable".
     """
-    if len(content) >= MIN_CONTENT_CHARS:
-        return content, False
-
-    if url:
-        try:
-            scraped = Scraper().run([url])
-            if scraped and scraped[0].get("content"):
-                return scraped[0]["content"], True
-        except Exception as exc:  # un échec de scrape ne doit pas interrompre la review
-            logger.warning("Scrape failed for %s — %s", url, exc)
-
-    return title, True
+    try:
+        scraped = Scraper().run([url])
+    except Exception as exc:  # a scrape failure must not abort the review
+        logger.warning("Scrape failed for %s — %s", url, exc)
+        return None
+    return scraped[0] if scraped else None
 
 
 def review_article(article: dict) -> ReviewResult | None:
     """
-    Annote un article via un appel LLM structuré: keywords + topics (+ résumé si besoin).
+    Review one article with a structured LLM call, recovering a junk title or thin
+    content from the source page when the record is a blocker.
 
-    Renvoie None si l'agent n'est pas configuré ou si l'appel LLM échoue. Dans ce cas,
-    l'appelant ne marque pas l'article comme traité et celui-ci sera repris lors d'une
-    prochaine passe (les échecs réseau ou de quota sont le plus souvent transitoires).
+    Returns one of three outcomes:
+      - None                        → skip and retry later (agent not configured, LLM
+                                      call failed, or source page unreachable — all
+                                      likely transient).
+      - ReviewResult(rejected=True) → terminal reject: the record can never become
+                                      indexable (no source URL, or source reached but
+                                      still no usable title and/or content).
+      - ReviewResult(...)           → annotation to persist, carrying the recovered title
+                                      and/or generated summary when the record was fixed.
+
+    It is the code (not the LLM) that decides to scrape. A recovered title is READ from
+    the page (never invented); thin content is summarized by the LLM.
     """
     agent = get_mini_agent()
     if agent is None:
@@ -136,22 +140,48 @@ def review_article(article: dict) -> ReviewResult | None:
     title = article.get("title") or ""
     url = article.get("url") or ""
 
-    text, needs_summary = _resolve_text(content, url, title)
+    title_ok = is_usable_title(title)
+    content_ok = has_enough_content(content)
+    text, needs_summary = content, False
+    recovered_title: str | None = None
+
+    if not (title_ok and content_ok):
+        # Blocker: try to recover the missing pieces from the source page.
+        scraped = _scrape(url) if url else None
+        if scraped is None:
+            if not url:
+                # No source to recover from → can never become indexable → reject.
+                return ReviewResult(keywords=[], tags=[], rejected=True)
+            # Page unreachable, possibly transient → leave 'ingested', retry later.
+            return None
+
+        page_title = scraped.get("title") or ""
+        page_content = (scraped.get("content") or "").strip()
+        if not title_ok and is_usable_title(page_title):
+            recovered_title, title_ok = page_title, True
+        if not content_ok and has_enough_content(page_content):
+            text, needs_summary, content_ok = page_content, True, True
+
+        if not (title_ok and content_ok):
+            # Source reached but still not indexable: nothing recoverable → terminal
+            # reject (also breaks the blocker loop — it would never pass the indexer).
+            return ReviewResult(keywords=[], tags=[], rejected=True)
+
     schema = _ReviewWithSummary if needs_summary else _Review
 
     try:
         review = agent.with_structured_output(schema).invoke(
             [
                 SystemMessage(content=_build_system_prompt(settings.available_topics)),
-                HumanMessage(content=f"Title: {title}\n\nContent:\n{text}"),
+                HumanMessage(content=f"Title: {recovered_title or title}\n\nContent:\n{text}"),
             ]
         )
     except Exception as exc:
         logger.warning("Review LLM call failed for %r — %s", article.get("reference"), exc)
         return None
 
-    # La sortie du LLM est une entrée non fiable: on filtre les topics contre le
-    # vocabulaire autorisé, même si le prompt les a déjà contraints.
+    # The LLM output is untrusted input: filter topics against the allowed vocabulary,
+    # even though the prompt already constrained them.
     allowed = set(settings.available_topics)
     tags = [t for t in review.topics if t in allowed]
 
@@ -159,4 +189,5 @@ def review_article(article: dict) -> ReviewResult | None:
         keywords=review.keywords,
         tags=tags,
         generated_summary=review.summary if needs_summary else None,
+        recovered_title=recovered_title,
     )

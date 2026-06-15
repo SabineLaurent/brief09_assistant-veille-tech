@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS article (
     tags           TEXT NOT NULL,                -- provenance/requête (JSON liste) : ex. catégorie arXiv
     keywords       TEXT NOT NULL DEFAULT '[]',   -- mots-clés de contenu (JSON liste) ; remplis par l'agent (TODO pt.3)
     authors        TEXT NOT NULL,
-    status         TEXT NOT NULL DEFAULT 'ingested' CHECK (status IN ('ingested', 'indexed', 'error')),
+    status         TEXT NOT NULL DEFAULT 'ingested' CHECK (status IN ('ingested', 'indexed', 'error', 'rejected')),
     -- SQLite n'a pas de type DATETIME natif : les dates sont stockées en TEXT
     -- au format ISO 8601 (ex: 2026-06-09T14:32:00). CURRENT_TIMESTAMP produit
     -- ce format automatiquement à l'insert.
