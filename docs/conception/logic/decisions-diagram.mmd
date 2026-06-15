@@ -1,0 +1,47 @@
+flowchart TD
+    ING([status = ingested<br/>llm_reviewed_at = NULL])
+
+    subgraph RBP["Passe review-blocking (AVANT index)"]
+      RB{"is_blocker ?<br/>titre déchet OU contenu maigre"}
+      AGENT{"agent configuré<br/>+ appel LLM OK ?"}
+      URL{"URL présente ?"}
+      SCRAPE{"scrape de la page source"}
+      REC["récupère :<br/>• titre LU si déchet<br/>• résumé LLM si contenu maigre"]
+      VALID{"après récup :<br/>titre OK ET contenu OK ?"}
+      PERSIST["persiste en SQLite :<br/>titre/contenu récupérés<br/>+ keywords/tags + llm_reviewed_at<br/>(reste ingested)"]
+      SKIP["skipped<br/>(transitoire : reste ingested)"]
+    end
+
+    subgraph IDXP["Passe index"]
+      IDX{"is_usable_title<br/>ET has_enough_content ?"}
+      EMBED["embed (titre + chunk)<br/>upsert Chroma"]
+      HELD["held<br/>(reste ingested)"]
+    end
+
+    REJ["status = rejected<br/>★ TERMINAL ★"]
+    INDEXED["status = indexed"]
+    ERR["status = error"]
+
+    ING --> RB
+    RB -->|"non = valide"| IDX
+    RB -->|"oui = bloquant"| AGENT
+    AGENT -->|"non / échec"| SKIP
+    AGENT -->|"oui"| URL
+    URL -->|"non"| REJ
+    URL -->|"oui"| SCRAPE
+    SCRAPE -->|"injoignable<br/>(404/403/timeout)"| SKIP
+    SCRAPE -->|"page atteinte"| REC
+    REC --> VALID
+    VALID -->|"non = rien d'exploitable"| REJ
+    VALID -->|"oui"| PERSIST
+
+    PERSIST --> IDX
+    SKIP --> IDX
+    IDX -->|"oui"| EMBED
+    IDX -->|"non"| HELD
+    EMBED --> INDEXED
+    EMBED -.->|exception| ERR
+
+    HELD -.->|"prochain run"| RB
+    SKIP -.->|"prochain run"| RB
+    
