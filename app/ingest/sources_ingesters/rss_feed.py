@@ -152,24 +152,3 @@ class RssFeedIngester:
             url=url,
             authors=[],
         )
-
-
-if __name__ == "__main__":
-    # Manual launch: `uv run python -m app.ingest.rss_feed`
-    #  -retrieves articles from configured RSS feeds
-    #  -database backup via upsert_article (idempotent)
-    #  -exports a timestamped CSV of the session
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    from app.data.article_store import count_articles, upsert_article
-    from app.data.csv_exporter import export_to_csv
-
-    ingester = RssFeedIngester()
-    articles = ingester.run()
-
-    inserted = sum(upsert_article(a.model_dump()) for a in articles)
-    csv_path = export_to_csv([a.model_dump() for a in articles], source_name="rss")
-
-    log.info("  → %d nouveaux articles ajoutés à la base de données", inserted)
-    log.info("  → Log CSV de la session : %s", csv_path)
-    log.info("Ingestion RSS terminée.")
-    log.info("  → La base contient maintenant %d entrées", count_articles())

@@ -254,29 +254,3 @@ class ArXivApiIngester:
 
         log.info("  → %d articles retenus (filtre année ≥ %d)", len(results), min_year)
         return results
-
-
-if __name__ == "__main__":
-    """
-    Standalone ingestion script for arXiv, to be launched occasionally during development.
-     -Retrieves articles corresponding to configured topics
-     -Normalizes the data
-     -Database backup via the upsert_article function (idempotent)
-     -Exports articles from this session to a timestamped CSV
-     -Displays a summary in the console
-     -Eventually, this script will be replaced by a scheduled task (cron)
-    """
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    from app.data.article_store import count_articles, upsert_article
-    from app.data.csv_exporter import export_to_csv
-
-    ingester = ArXivApiIngester()
-    articles = ingester.run()
-
-    inserted = sum(upsert_article(a.model_dump()) for a in articles)
-    csv_path = export_to_csv([a.model_dump() for a in articles], source_name="arxiv")
-
-    log.info("  → %d nouveaux articles ajoutés à la base de données", inserted)
-    log.info("  → Log des entrées de cette session dans le csv : %s", csv_path)
-    log.info("Ingestion arXiv terminée.")
-    log.info("  → La base de données de veille contient maintenant %d entrées", count_articles())

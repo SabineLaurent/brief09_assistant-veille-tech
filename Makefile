@@ -1,4 +1,4 @@
-.PHONY: up down logs install test fmt lint typecheck pipeline-e2e ingest arxiv-ingest tldr-ingest arxiv-e2e tldr-e2e review-blocking review index chat-test chromadelete chromareset
+.PHONY: up down logs install test fmt lint typecheck pipeline-e2e ingest arxiv-ingest tldr-ingest rss-ingest arxiv-e2e tldr-e2e review-blocking review index chat-test chromadelete chromareset
 
 install:
 	uv sync
@@ -32,13 +32,16 @@ migrate:
 # Chroma metadata). The classic review runs last, after the index is reachable.
 pipeline-e2e: ingest review-blocking index review
 
-ingest: arxiv-ingest tldr-ingest
+ingest: arxiv-ingest tldr-ingest rss-ingest
 
 arxiv-ingest:
 	PYTHONPATH=. uv run python scripts/ingest_cli.py fetch
 
 tldr-ingest:
 	PYTHONPATH=. uv run python scripts/ingest_cli.py tldr
+
+rss-ingest:
+	PYTHONPATH=. uv run python scripts/ingest_cli.py rss
 
 # Récupère les bloquants (titre déchet et/ou contenu maigre) AVANT l'index : scrape la
 # source pour relire le titre / résumer le contenu, rejette ce qui n'est pas récupérable.
