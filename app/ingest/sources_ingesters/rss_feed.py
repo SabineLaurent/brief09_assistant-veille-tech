@@ -1,3 +1,12 @@
+"""
+Ingestion of configured RSS feeds.
+    --> Official blogs: OpenAI, HuggingFace. 
+
+
+
+"""
+
+
 from __future__ import annotations
 
 import hashlib
@@ -18,16 +27,15 @@ from app.ingest.article_models import RssArticle
 log = logging.getLogger(__name__)
 
 
-
-
-
 def _entry_datetime(entry: Any) -> datetime | None:
-    """Date d'une entrée RSS/Atom : published si présent, sinon updated, sinon None.
-
-    feedparser expose les dates parsées sous forme de struct_time
-    (`published_parsed` / `updated_parsed`) : on en garde les 6 premiers champs
-    (année…seconde) pour construire un datetime.
     """
+    Date of an RSS entry: published if present, otherwise updated, otherwise None.
+
+    feedparser exposes parsed dates as struct_time
+    (`published_parsed` /`updated_parsed`): we keep the first 6 fields
+    (year…second) to construct a datetime.
+    """
+    
     parsed = entry.get("published_parsed") or entry.get("updated_parsed")
     if not parsed:
         return None
@@ -36,15 +44,16 @@ def _entry_datetime(entry: Any) -> datetime | None:
 
 @dataclass
 class RssFeedIngester:
-    """Ingester « froid » des flux RSS/Atom configurés (blogs officiels : OpenAI,
+    """
+    "Cold" ingest configured RSS feeds (official blogs: OpenAI,
     HuggingFace, MIT Tech Review…).
 
-    Même mécanique de collecte que `runtime/fresh_news.py` (feedparser), mais :
-      - sortie en `Article` pydantic (persistée en SQLite, puis indexée dans Chroma),
-      - PAS de tag « New » : ces articles vont dans la base de connaissance froide.
+    Same collection mechanics as `runtime/fresh_news.py` (feedparser), but:
+      -output in pydantic `Article` (persisted in SQLite, then indexed in Chroma),
+      -NO “New” tag: these articles go into the cold knowledge base.
 
-    Calqué sur `TldrScraper` : httpx synchrone (l'ingestion CLI est synchrone) et
-    boucle tolérante aux pannes (un flux KO n'invalide pas les autres).
+    Modeled after `TldrScraper`: synchronous httpx (CLI ingestion is synchronous) and
+    fault-tolerant loop (a KO flow does not invalidate the others).
     """
 
     # default_factory=get_settings : get_settings() est lru_cached → on récupère le
@@ -53,20 +62,23 @@ class RssFeedIngester:
     user_agent: str = "nauda-palisse-veille/0.1"
     timeout: float = 8.0
 
+
     def run(self) -> list[RssArticle]:
-        """Récupère et normalise les articles de tous les flux RSS configurés.
-
-        Entrée :
-            aucune — les flux viennent de la config
-            (settings.sources.rss_feeds, liste de RSSFeed {url, topic, fresh_news}).
-
-        Sortie :
-            liste de RssArticle (voir _normalize_entry pour la forme), tous flux
-            confondus. Collecte froide incrémentale : par flux, on prend les
-            articles publiés depuis le watermark (dernière date connue en base) ;
-            au run à froid (watermark None), on part de `rss_start_date`.
-            Liste vide si tous les flux ont échoué.
         """
+        Retrieves and normalizes articles from all configured RSS feeds.
+
+        Entrance:
+            none — the flows come from the config
+            (settings.sources.rss_feeds, RSSFeed list {url, topic, fresh_news}).
+
+        Output:
+            list of RssArticle (see _normalize_entry for form), all feeds
+            confused. Incremental cold collection: per flow, we take the
+            articles published since the watermark (last date known in database);
+            when running cold (watermark None), we start from `rss_start_date`.
+            Empty list if all flows failed.
+        """
+
         feeds = self.settings.sources.rss_feeds
         # Plancher du run à froid (watermark None) : uniforme avec tldr_start_date.
         start = date.fromisoformat(self.settings.sources.rss_start_date)
@@ -110,16 +122,19 @@ class RssFeedIngester:
         log.info("  → %d articles RSS récupérés (%d flux)", len(articles), len(feeds))
         return articles
 
-    def _normalize_entry(self, entry: Any, feed_title: str) -> RssArticle:
-        """Convertit une entrée RSS en RssArticle normalisé.
 
-        Sortie :
-            RssArticle de la forme :
-                reference="<sha1 de l'url sans query>", title="...",
-                source="<titre du flux>", published_date=datetime|None,
-                content="<résumé en Markdown>", url="https://...", authors=[]
-            tags et keywords restent vides : c'est l'agent de review qui les renseigne.
+    def _normalize_entry(self, entry: Any, feed_title: str) -> RssArticle:
         """
+        Converts an RSS entry to a normalized RssArticle.
+
+        Output:
+            RssArticle of the form:
+                reference="<sha1 of url without query>", title="...",
+                source="<stream title>", published_date=datetime|None,
+                content="<Markdown summary>", url="https://...", authors=[]
+            tags and keywords remain empty: it is the review agent who enters them.
+        """
+
         url = entry.get("link", "")
         # reference = clé de dédup : on retire la query (tracking utm…) pour qu'un
         # même article ressorti avec des paramètres différents donne la même clé.
@@ -140,10 +155,10 @@ class RssFeedIngester:
 
 
 if __name__ == "__main__":
-    # Lancement manuel : `uv run python -m app.ingest.rss_feed`
-    #  - récupère les articles des flux RSS configurés
-    #  - sauvegarde en base via upsert_article (idempotent)
-    #  - exporte un CSV horodaté de la session
+    # Manual launch: `uv run python -m app.ingest.rss_feed`
+    #  -retrieves articles from configured RSS feeds
+    #  -database backup via upsert_article (idempotent)
+    #  -exports a timestamped CSV of the session
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     from app.data.article_store import count_articles, upsert_article
     from app.data.csv_exporter import export_to_csv

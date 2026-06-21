@@ -26,36 +26,36 @@ class TldrScraper:
 
     def build_urls(self, editions: list[str], date: str) -> list[str]:
         """
-        Construit les URLs des newsletters TLDR à scraper.
+        Constructs TLDR newsletter URLs to scrape.
 
-        Entrée :
-            editions : noms d'éditions TLDR, ex. ["tech", "webdev", "ai"]
-            date : date de l'édition au format "YYYY-MM-DD", ex. "2026-06-10"
+        Entrance:
+            editions: TLDR edition names, e.g. ["tech", "webdev", "ai"]
+            date: edition date in “YYYY-MM-DD” format, e.g. "2026-06-10"
 
-        Sortie :
-            liste d'URLs, une par édition,
+        Output:
+            list of URLs, one per edition,
             ex. ["https://tldr.tech/tech/2026-06-10", "https://tldr.tech/ai/2026-06-10"]
         """
-        # rstrip("/") : le base_url peut finir par un "/" (selon le .env) ; sans ça
-        # on obtiendrait un double slash "https://tldr.tech//tech/..." (redirect 308).
+        # rstrip("/"): the base_url can end with a "/" (depending on the .env); without that
+        # we would obtain a double slash "https://tldr.tech//tech/..." (redirect 308).
         base = self.base_url.rstrip("/")
         return [f"{base}/{edition}/{date}" for edition in editions]
 
     def run(self, urls: list[str]) -> list[TldrArticle]:
         """
-        Télécharge et parse chaque newsletter ; une URL en échec est loggée et ignorée.
+        Download and parse each newsletter; a failed URL is logged and ignored.
 
-        Entrée :
-            urls : URLs de newsletters TLDR (telles que produites par build_urls),
-            ex. ["https://tldr.tech/ai/2026-06-10"]
+        Entrance:
+            urls: TLDR newsletter URLs (as produced by build_urls),
+            e.g. ["https://tldr.tech/ai/2026-06-10"]
 
-        Sortie :
-            liste de TldrArticle (toutes éditions confondues), chacun de la forme :
-                reference="<sha1 de l'url sans tracking>", title="...",
+        Output:
+            list of TldrArticle (all editions combined), each of the form:
+                reference="<sha1 of url without tracking>", title="...",
                 source="tldr.tech", published_date=datetime|None,
-                content="<résumé en Markdown>", url="https://...", authors=[]
-            tags et keywords restent vides : c'est l'agent de review qui les renseigne.
-            Liste vide si toutes les URLs ont échoué.
+                content="<Markdown summary>", url="https://...", authors=[]
+            tags and keywords remain empty: it is the review agent who enters them.
+            Empty list if all URLs failed.
         """
         articles: list[TldrArticle] = []
         with httpx.Client(
@@ -74,17 +74,17 @@ class TldrScraper:
         return articles
 
     def run_incremental(self) -> list[TldrArticle]:
-        """Collecte incrémentale : calcule les éditions manquantes puis scrape.
+        """Incremental collection: calculates the missing editions then scrapes.
 
-        Encapsule l'enchaînement qui vivait jusqu'ici dans le CLI `tldr` :
-            get_watermark (article_store) → missing_edition_dates → build_urls → run
+        Encapsulates the sequence that lived until now in the `tldr` CLI:
+            get_watermark(article_store) → missing_edition_dates → build_urls → run
 
-        Sortie :
-            liste de TldrArticle des éditions manquantes (watermark+1 →
-            aujourd'hui). Liste vide si la base est déjà à jour.
+        Output:
+            TldrArticle list of missing editions (watermark+1 →
+            today). Empty list if the database is already up to date.
 
-        Pendant : aligne TLDR sur arXiv — l'appelant n'a plus qu'à faire
-        `.run_incremental()` sans connaître la mécanique du watermark.
+        During: aligns TLDR with arXiv — caller just needs to do
+        `.run_incremental()` without knowing the watermark mechanics.
         """
         settings = get_settings()
         watermark = get_watermark("tldr.tech", "published_date")
@@ -106,19 +106,19 @@ class TldrScraper:
 
 
 def missing_edition_dates(watermark: datetime | None, today: date, start_date: date) -> list[str]:
-    """Calcule les dates d'édition TLDR restant à scraper — ingestion incrémentale.
+    """Calculates TLDR edition dates remaining to scrape — incremental ingestion.
 
-    Entrée :
-        watermark : date de la dernière édition déjà en base (None si base vide).
-        today : date du jour, borne haute incluse.
-        start_date : date de départ quand la base est vide (watermark None).
+    Entrance:
+        watermark: date of the last edition already in the base (None if the base is empty).
+        today: today's date, upper limit included.
+        start_date: start date when the database is empty (watermark None).
 
-    Sortie :
-        liste de dates "YYYY-MM-DD" (format attendu par build_urls), de la dernière
-        connue + 1 jour jusqu'à aujourd'hui inclus. Liste vide si déjà à jour
-        (watermark >= today) → le 2ᵉ run ne re-scrape rien.
+    Output:
+        list of dates "YYYY-MM-DD" (format expected by build_urls), from the last
+        known + 1 day up to and including today. Empty list if already up to date
+        (watermark >= today) → the 2nd run does not re-scrape anything.
 
-    Voir docs/steps/11-ingestion-incrementale-watermark.md.
+    See docs/steps/11-ingestion-incrementale-watermark.md.
     """
     start = start_date if watermark is None else watermark.date() + timedelta(days=1)
     dates: list[str] = []
@@ -131,8 +131,8 @@ def missing_edition_dates(watermark: datetime | None, today: date, start_date: d
 
 def _extract_date(url: str) -> str:
     """
-    Entrée : URL de newsletter, ex. "https://tldr.tech/ai/2026-06-10"
-    Sortie : la date au format "YYYY-MM-DD" ("" si introuvable).
+    Input: Newsletter URL, e.g. "https://tldr.tech/ai/2026-06-10"
+    Output: the date in "YYYY-MM-DD" format ("" if not found).
     """
     match = re.search(r"(\d{4}-\d{2}-\d{2})", url)
     return match.group(1) if match else ""
@@ -140,18 +140,18 @@ def _extract_date(url: str) -> str:
 
 def _parse_newsletter(html: str, date: str) -> list[TldrArticle]:
     """
-    Parse le HTML d'une newsletter TLDR en articles normalisés.
+    Parses the HTML of a TLDR newsletter into normalized articles.
 
-    Entrée :
-        html : page HTML complète de la newsletter (structure attendue :
-               <section> par catégorie, contenant des <article> avec un lien
-               a.font-bold>h3 pour le titre et un div.newsletter-html pour le résumé)
-        date : date de l'édition au format "YYYY-MM-DD" (peut être "")
+    Entrance:
+        html: complete HTML page of the newsletter (expected structure:
+               <section> by category, containing <article> with a link
+               a.font-bold>h3 for the title and a div.newsletter-html for the summary)
+        date: date of edition in "YYYY-MM-DD" format (can be "")
 
-    Sortie :
+    Output:
         liste de TldrArticle (voir TldrScraper.run pour la forme exacte).
-        Les articles sponsorisés ("(Sponsor)" dans le titre) et les entrées
-        sans lien sont exclus.
+        Sponsored articles ("(Sponsor)" in the title) and entries
+        unrelated are excluded.
     """
     soup = BeautifulSoup(html, "lxml")
     articles = []

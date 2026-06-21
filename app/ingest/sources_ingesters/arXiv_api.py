@@ -37,25 +37,25 @@ class ArXivApiIngester:
         self, category: str, keywords: list[str], start: int = 0
     ) -> list[dict[str, Any]]:
         """
-        Interroge l'API arXiv pour une catégorie et une liste de mots-clés (combinés en OR).
+        Queries the arXiv API for a category and a list of keywords (combined in OR).
 
-        Entrée :
-            category : catégorie arXiv, ex. "cs.AI"
-            keywords : mots-clés de recherche, ex. ["deep learning", "transformer"]
+        Entrance:
+            category: arXiv category, e.g. "cs.AI"
+            keywords: search keywords, e.g. ["deep learning", "transform"]
 
-        Sortie :
-            liste de dicts bruts (un par <entry> du flux Atom), de la forme :
+        Output:
+            list of raw dicts (one per <entry> of the Atom flow), of the form:
                 {
                     "id": "http://arxiv.org/abs/2411.18583v1",
                     "title": "...",
-                    "summary": "<abstract du papier>",
+                    "summary": "<paper abstract>",
                     "published": "2025-11-27T18:59:59Z",
                     "authors": ["Alice Martin", "Bob Chen"],
                     "link": "http://arxiv.org/abs/2411.18583v1",
                 }
         """
-        # ======= Construction de la requête de recherche ========
-        # ex. "cat:cs.AI AND (all:deep learning OR all:transformer)"
+        # ======= Construction of the search query ========
+        # e.g. "cat:cs.AI AND (all:deep learning OR all:transformer)"
         kw_query = " OR ".join(f"all:{kw}" for kw in keywords)
         log.info("[arXiv] topic %s — %d keywords (start=%d)", category, len(keywords), start)
 
@@ -87,14 +87,14 @@ class ArXivApiIngester:
 
     def _xml_to_raw_entries(self, content: bytes) -> list[etree._Element]:
         """
-        Parse le XML Atom renvoyé par arXiv et retourne une liste d'éléments <entry>.
+        Parses the Atom XML returned by arXiv and returns a list of <entry> elements.
 
-        Entrée :
-            content : corps brut de la réponse HTTP (bytes), un document XML Atom
-            dont la racine <feed> contient un élément <entry> par article.
+        Entrance:
+            content: raw body of the HTTP response (bytes), an Atom XML document
+            whose root <feed> contains one <entry> element per article.
 
-        Sortie :
-            liste d'éléments lxml <entry> (vide si le flux ne contient aucun article).
+        Output:
+            lxml <entry> element list (empty if the feed contains no articles).
         """
         root = etree.fromstring(content)
         return root.findall(_tag("entry"))
@@ -102,16 +102,16 @@ class ArXivApiIngester:
 
     def _entry_to_dict(self, entry: etree._Element) -> dict[str, Any]:
         """
-        Convertit un élément <entry> en dictionnaire.
+        Converts an <entry> element to a dictionary.
 
-        Entrée :
-            entry : élément lxml <entry> du flux Atom arXiv
+        Entrance:
+            entry: lxml <entry> element of the Atom arXiv feed
 
-        Sortie :
-            dict brut {id, title, summary, published, updated, authors, link} —
-            voir fetch_articles pour un exemple complet. Les champs texte absents
-            du XML valent "" ; authors/link sont extraits des sous-éléments
-            <author><name> et <link rel="alternate">.
+        Output:
+            raw dict {id, title, summary, published, updated, authors, link} —
+            see fetch_articles for a complete example. Missing text fields
+            of XML are ""; authors/link are extracted from sub-elements
+            <author><name> and <link rel="alternate">.
         """
 
         def text(name: str) -> str:
@@ -144,23 +144,23 @@ class ArXivApiIngester:
 
     def normalize_article(self, article: dict[str, Any]) -> ArXivArticle:
         """
-        Normalise les données d'un article arXiv.
-         - Extrait l'ID arXiv de l'URL (ex: "2411.18583v1")
-         - Convertit la date de publication en objet datetime
+        Normalizes data from an arXiv article.
+         -Extract the arXiv ID from the URL (ex: "2411.18583v1")
+         -Converts publish date to datetime object
 
-        Entrée :
-            article : dict brut produit par _entry_to_dict (voir fetch_articles
-            pour la forme exacte).
+        Entrance:
+            article: raw dict produced by _entry_to_dict (see fetch_articles
+            for the exact form).
 
-        Sortie :
-            ArXivArticle de la forme :
+        Output:
+            ArXivArticle of the form:
                 reference="2411.18583v1", title="...", source="arXiv",
                 published_date=datetime|None, content="<abstract>",
                 url="http://arxiv.org/abs/2411.18583v1",
                 authors=["Alice Martin", ...]
 
-        tags et keywords sont laissés vides : c'est l'agent de review qui les
-        renseigne, à partir du contenu.
+        tags and keywords are left empty: it is the review agent who
+        provides information based on the content.
         """
         arxiv_id = article["id"].split("/abs/")[-1]  # ex: "2411.18583v1"
 
@@ -183,39 +183,39 @@ class ArXivApiIngester:
 
     def run(self) -> list[ArXivArticle]:
         """
-        Récupère et normalise les articles arXiv pour tous les topics configurés,
-        en excluant ceux publiés avant `arxiv_min_year`.
+        Retrieves and normalizes arXiv articles for all configured topics,
+        excluding those published before `arxiv_min_year`.
 
-        Entrée :
-            aucune — les topics viennent de la config
-            (settings.sources.arXiv_topics, liste d'ArXivTopic {category, keywords}).
+        Entrance:
+            none — the topics come from the config
+            (settings.sources.arXiv_topics, ArXivTopic list {category, keywords}).
 
-        Sortie :
-            liste d'ArXivArticle normalisés (voir normalize_article pour la forme),
-            tous topics confondus, filtrés par année de publication.
+        Output:
+            list of normalized ArXivArticles (see normalize_article for the form),
+            all topics combined, filtered by year of publication.
 
-        Remarque sur le filtrage par date :
-        Le filtre est appliqué ici plutôt que dans la requête API car l'endpoint
-        arXiv Atom n'expose pas de paramètre de filtre par date de publication.
-        Le paramètre `submittedDate` filtre sur la date de dépôt initiale, qui peut
-        diverger de `published` (révisions, mises à jour tardives). Filtrer après
-        réception garantit un comportement cohérent quelle que soit l'historique
-        de la soumission.
+        Note on filtering by date:
+        The filter is applied here rather than in the API request because the endpoint
+        arXiv Atom does not expose a filter parameter by publication date.
+        The `submittedDate` parameter filters on the initial submission date, which can
+        diverge from `published` (revisions, late updates). Filter after
+        reception guarantees consistent behavior regardless of history
+        of submission.
         """
         log.info("Début ingestion arXiv — %d topic(s)", len(self.settings.sources.arXiv_topics))
         min_year = self.settings.sources.arxiv_min_year
         page_size = self.settings.sources.arxiv_max_results
         max_pages = self.settings.sources.arxiv_max_pages
-        # Watermark incrémental : la date <updated> la plus récente déjà en base.
-        # None au tout premier run (base vide) → on pagine jusqu'au plafond max_pages.
+        # Incremental watermark: the most recent <updated> date already in the database.
+        # None at the very first run (empty base) → we paginate up to the max_pages ceiling.
         watermark = get_watermark("arXiv", "updated_date")
         results: list[ArXivArticle] = []
 
         for topic in self.settings.sources.arXiv_topics:
             for page in range(max_pages):
-                # Tolérance aux pannes : un échec réseau (timeout arXiv fréquent sur la
-                # pagination) ne doit pas tout perdre. On garde les pages déjà obtenues
-                # et on arrête ce topic proprement.
+                # Fault tolerance: a network failure (frequent arXiv timeout on the
+                # pagination) should not lose everything. We keep the pages already obtained
+                # and we stop this topic properly.
                 try:
                     raw_entries = self.fetch_articles(
                         topic.category, topic.keywords, start=page * page_size
@@ -234,8 +234,8 @@ class ArXivApiIngester:
                 reached_watermark = False
                 for raw in raw_entries:
                     article = self.normalize_article(raw)
-                    # Flux trié par lastUpdatedDate décroissant : dès qu'on atteint un
-                    # article ≤ watermark, tout le reste est déjà connu → on arrête.
+                    # Flow sorted by lastUpdatedDate descending: as soon as we reach a
+                    # article ≤ watermark, everything else is already known → we stop.
                     if (
                         watermark is not None
                         and article.updated_date is not None
@@ -248,9 +248,9 @@ class ArXivApiIngester:
                     results.append(article)
 
                 if reached_watermark:
-                    break  # rattrapage terminé, inutile de paginer plus loin
+                    break  # catch-up finished, no need to page further
                 if page + 1 < max_pages:
-                    time.sleep(self.page_delay)  # politesse envers l'API arXiv
+                    time.sleep(self.page_delay)  # courtesy to the arXiv API
 
         log.info("  → %d articles retenus (filtre année ≥ %d)", len(results), min_year)
         return results
@@ -258,13 +258,13 @@ class ArXivApiIngester:
 
 if __name__ == "__main__":
     """
-    Script d'ingestion autonome pour arXiv, à lancer ponctuellement pendant le développement.
-     - Récupère les articles correspondant aux topics configurés
-     - Normalise les données
-     - Sauvegarde en base via la fonction upsert_article (idempotent)
-     - Exporte les articles de cette session dans un CSV horodaté
-     - Affiche un résumé dans la console
-     - À terme, ce script sera remplacé par une tâche planifiée (cron)
+    Standalone ingestion script for arXiv, to be launched occasionally during development.
+     -Retrieves articles corresponding to configured topics
+     -Normalizes the data
+     -Database backup via the upsert_article function (idempotent)
+     -Exports articles from this session to a timestamped CSV
+     -Displays a summary in the console
+     -Eventually, this script will be replaced by a scheduled task (cron)
     """
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     from app.data.article_store import count_articles, upsert_article
