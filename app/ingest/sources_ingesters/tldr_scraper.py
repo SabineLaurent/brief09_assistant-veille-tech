@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 import httpx
 from bs4 import BeautifulSoup
 
-from app.config import get_settings
+from app.config import TldrEdition, get_settings
 from app.data.article_store import get_watermark
 from app.ingest.cleaning import clean_html_to_markdown
 from app.ingest.article_models import TldrArticle
@@ -22,24 +22,25 @@ class TldrScraper:
     base_url: str = get_settings().sources.tldr_base_url
     user_agent: str = "nauda-palisse-veille/0.1"
     timeout: float = 10.0
-    editions: list[str] = field(default_factory=lambda: ["ai", "infosec", "it", "design", "dev", "devops", "tech", "data", "hardware"])
+    editions: list[TldrEdition] = field(default_factory=lambda: get_settings().sources.tldr_editions)
 
-    def build_urls(self, editions: list[str], date: str) -> list[str]:
+    def build_urls(self, editions: list[TldrEdition], date: str) -> list[str]:
         """
         Constructs TLDR newsletter URLs to scrape.
 
         Entrance:
-            editions: TLDR edition names, e.g. ["tech", "webdev", "ai"]
+            editions: TLDR editions to scrape; each edition's `name` is the URL
+            slug, e.g. TldrEdition(name="tech"), TldrEdition(name="ai")
             date: edition date in “YYYY-MM-DD” format, e.g. "2026-06-10"
 
         Output:
-            list of URLs, one per edition,
+            list of URLs, one per edition (those without a `name` are skipped),
             ex. ["https://tldr.tech/tech/2026-06-10", "https://tldr.tech/ai/2026-06-10"]
         """
         # rstrip("/"): the base_url can end with a "/" (depending on the .env); without that
         # we would obtain a double slash "https://tldr.tech//tech/..." (redirect 308).
         base = self.base_url.rstrip("/")
-        return [f"{base}/{edition}/{date}" for edition in editions]
+        return [f"{base}/{edition.name}/{date}" for edition in editions if edition.name]
 
     def run(self, urls: list[str]) -> list[TldrArticle]:
         """

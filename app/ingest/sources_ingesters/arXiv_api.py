@@ -188,7 +188,7 @@ class ArXivApiIngester:
 
         Entrance:
             none — the topics come from the config
-            (settings.sources.arXiv_topics, ArXivTopic list {category, keywords}).
+            (settings.sources.arXiv_topics, ArXivTopic list {name, keywords}).
 
         Output:
             list of normalized ArXivArticles (see normalize_article for the form),
@@ -218,14 +218,14 @@ class ArXivApiIngester:
                 # and we stop this topic properly.
                 try:
                     raw_entries = self.fetch_articles(
-                        topic.category, topic.keywords, start=page * page_size
+                        topic.name, topic.keywords, start=page * page_size
                     )
                 except Exception as e:
                     log.warning(
                         "[arXiv] page start=%d échouée (%s) — arrêt du topic %s",
                         page * page_size,
                         e,
-                        topic.category,
+                        topic.name,
                     )
                     break
                 if not raw_entries:

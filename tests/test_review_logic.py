@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.config import ControlledTopic
 from app.review import article_reviewer as reviewer
 from app.review.review_orchestrator import is_blocker
 
@@ -51,7 +52,11 @@ def mock_agent(monkeypatch):
     """Wire a configured fake agent and a fixed allowed-topics vocabulary."""
     payload = SimpleNamespace(keywords=["kw"], topics=["AI"], summary="a summary")
     monkeypatch.setattr(reviewer, "get_mini_agent", lambda: _FakeAgent(payload))
-    monkeypatch.setattr(reviewer, "get_settings", lambda: SimpleNamespace(available_topics=["AI"]))
+    monkeypatch.setattr(
+        reviewer,
+        "get_settings",
+        lambda: SimpleNamespace(available_topics=[ControlledTopic(name="AI")]),
+    )
     return payload
 
 

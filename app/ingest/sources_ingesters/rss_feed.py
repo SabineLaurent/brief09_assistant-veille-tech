@@ -69,7 +69,7 @@ class RssFeedIngester:
 
         Entrance:
             none — the flows come from the config
-            (settings.sources.rss_feeds, RSSFeed list {url, topic, fresh_news}).
+            (settings.sources.rss_feeds, RSSFeed list {url, name, fresh_news}).
 
         Output:
             list of RssArticle (see _normalize_entry for form), all feeds

@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from app.config import get_settings
+from app.config import ControlledTopic, get_settings
 from app.ingest.cleaning import has_enough_content, is_usable_title
 from app.ingest.scraper import Scraper
 
@@ -92,21 +92,11 @@ def get_mini_agent() -> ChatOpenAI | None:
     )
 
 
-_TOPIC_GLOSSES = {
-    "AI": "machine learning, models, LLMs, training/inference, AI research and products.",
-    "Security": "vulnerabilities, attacks, defense, cryptography, privacy.",
-    "Agentic": "autonomous agents, tool-use, multi-agent systems, agent orchestration.",
-    "Embedded": "on-device/edge computing, hardware, IoT, tinyML, firmware.",
-    "Web": "web development, front-end, back-end, frameworks, web standards.",
-    "DevOps": "CI/CD, deployment, monitoring, observability, cloud-native.",
-}
-
-
-def _build_system_prompt(available_topics: list[str]) -> str:
-    # Gloss each allowed topic when we have a definition; fall back to the bare name
-    # so an added topic still appears in the list even before it gets a gloss.
+def _build_system_prompt(available_topics: list[ControlledTopic]) -> str:
+    # Gloss each allowed topic when it has a definition; fall back to the bare name
+    # so a topic without a gloss still appears in the list.
     topic_lines = "\n".join(
-        f"  - {t}: {_TOPIC_GLOSSES[t]}" if t in _TOPIC_GLOSSES else f"  - {t}"
+        f"  - {t.name}: {t.gloss}" if t.gloss else f"  - {t.name}"
         for t in available_topics
     )
     return (
@@ -244,7 +234,7 @@ def review_article(article: dict) -> ReviewResult | None:
 
     # The LLM output is untrusted input: filter topics against the allowed vocabulary,
     # even though the prompt already constrained them.
-    allowed = set(settings.available_topics)
+    allowed = {t.name for t in settings.available_topics}
     tags = [t for t in review.topics if t in allowed]
 
     return ReviewResult(
