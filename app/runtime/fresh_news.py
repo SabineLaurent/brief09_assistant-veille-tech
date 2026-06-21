@@ -1,125 +1,173 @@
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
-from urllib.parse import urlparse
 
-import feedparser
 import httpx
 
-from app.config import get_settings
-from app.ingest.cleaning import clean_html_to_markdown
+from app.config import Settings, TldrEdition, get_settings
+from app.ingest.article_models import TldrArticle
+from app.ingest.sources_ingesters.tldr_scraper import TldrScraper
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 8.0
 _USER_AGENT = "nauda-palisse-veille/0.1"
+_TLDR_LOOKBACK_DAYS = 3  # today, J-1, J-2
 
 
-def _entry_datetime(entry: Any) -> datetime | None:
+# ====== GitHub releases ======
 
-    parsed = entry.get("published_parsed") or entry.get("updated_parsed")
-    if not parsed:
-        return None
-    
-    return datetime(*parsed[:6])
+async def _fetch_github(settings: Settings) -> list[dict[str, Any]]:
+    """Latest release of each watched repo, as fresh articles.
+
+    One request per repo (`/repos/{owner}/{name}/releases/latest`); a repo
+    without release (404), unreachable or rate-limited is logged and skipped.
+    """
+    repos = settings.sources.github_watched_repos
+    if not repos:
+        return []
+
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": _USER_AGENT}
+    token = settings.sources.github_releases_token
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    base = settings.sources.github_api_url.rstrip("/")
+    articles: list[dict[str, Any]] = []
+
+    async with httpx.AsyncClient(
+        headers=headers, timeout=_TIMEOUT, follow_redirects=True
+    ) as client:
+        for repo in repos:
+            try:
+                resp = await client.get(
+                    f"{base}/repos/{repo.owner}/{repo.name}/releases/latest"
+                )
+                resp.raise_for_status()
+                articles.append(_normalize_release(repo.owner, repo.name, resp.json()))
+            except Exception as exc:
+                logger.warning(
+                    "fresh_news[github]: %s/%s skipped — %s", repo.owner, repo.name, exc
+                )
+
+    logger.info("fresh_news[github]: %d release(s) (%d repo(s))", len(articles), len(repos))
+    return articles
 
 
-def _normalize_entry(entry: Any, feed_title: str, dt: datetime | None) -> dict[str, Any]:
-
-    url = entry.get("link", "")
-    # source : titre du flux (ex. "OpenAI News"), repli sur le domaine de l'URL.
-    source = feed_title or urlparse(url).netloc
-    summary = entry.get("summary", "")
-
-    # tags volontairement vide pour les articles fresh news : la distinction "frais" et
-    # la catégorie (feed.topic) seront gérées côté front (affichage), pas dans les tags.
+def _normalize_release(owner: str, name: str, data: dict[str, Any]) -> dict[str, Any]:
+    """GitHub release payload → fresh article dict. `body` is already Markdown."""
+    tag = data.get("tag_name", "")
     return {
-        "title": entry.get("title", "Sans titre"),
-        "url": url,
-        "source": source,
-        "date": dt.isoformat() if dt else None,
-        "content": clean_html_to_markdown(summary) if summary else "",
+        "title": f"{name} {tag}".strip(),
+        "url": data.get("html_url", ""),
+        "source": f"github.com/{owner}/{name}",
+        "date": data.get("published_at"),
+        "content": data.get("body") or "",
         "tags": [],
     }
 
+
+# ====== TLDR.tech (live) ======
+
+async def _fetch_tldr(settings: Settings) -> list[dict[str, Any]]:
+    """Today's TLDR editions (cascading to previous days if empty)."""
+    scraper = TldrScraper()
+    editions = settings.sources.tldr_editions
+    # TldrScraper is synchronous (httpx.Client): run it off the event loop so the
+    # live chat path is not blocked.
+    articles = await asyncio.to_thread(_scrape_tldr_cascade, scraper, editions)
+    return [_normalize_tldr(a) for a in articles]
+
+
+def _scrape_tldr_cascade(
+    scraper: TldrScraper, editions: list[TldrEdition]
+) -> list[TldrArticle]:
+    """Cascade today → J-1 → J-2: return the first non-empty day.
+
+    A TLDR edition may not exist yet (published later in the day) or be missing
+    (weekend), so we walk back day by day and stop as soon as one yields articles.
+    """
+    today = date.today()
+    for delta in range(_TLDR_LOOKBACK_DAYS):
+        day = (today - timedelta(days=delta)).isoformat()
+        urls = scraper.build_urls(editions, day)
+        articles = scraper.run(urls)
+        if articles:
+            logger.info("fresh_news[tldr]: %d article(s) for %s", len(articles), day)
+            return articles
+        logger.info("fresh_news[tldr]: 0 article for %s, trying previous day…", day)
+
+    logger.warning(
+        "fresh_news[tldr]: no article over the last %d day(s)", _TLDR_LOOKBACK_DAYS
+    )
+    return []
+
+
+def _normalize_tldr(article: TldrArticle) -> dict[str, Any]:
+    """TldrArticle → fresh article dict (same shape as _normalize_release)."""
+    return {
+        "title": article.title,
+        "url": article.url,
+        "source": article.source,
+        "date": article.published_date.isoformat() if article.published_date else None,
+        "content": article.content,
+        "tags": [],
+    }
+
+
+# ====== Public entrypoint ======
 
 async def fetch(
     topics: list[str],
     since: datetime | None = None,
 ) -> list[dict[str, Any]]:
+    """Live fresh articles: GitHub releases + TLDR (today, fallback to previous days).
 
+    `topics` and `since` are accepted to honor the caller's contract
+    (chat.handle_chat), but the sources are already freshness-bounded (latest
+    release per repo, TLDR over the last 3 days) so no extra filtering is applied.
+
+    Degradable: each source is isolated; any failure logs and yields [] so /chat
+    keeps working without network / GitHub token.
+    """
     settings = get_settings()
-    feeds = settings.sources.rss_feeds
-    cap = settings.sources.rss_max_items_per_feed
-    articles: list[dict[str, Any]] = []
 
     try:
-        async with httpx.AsyncClient(
-            headers={"User-Agent": _USER_AGENT},
-            timeout=_TIMEOUT,
-            follow_redirects=True,
-        ) as client:
-            for feed in feeds:
-                # Tolérance aux pannes : un flux KO (réseau, XML pourri) ne doit pas
-                # priver des autres --> on logue et on passe au suivant.
-                try:
-                    resp = await client.get(feed.url)
-                    resp.raise_for_status()
-                    parsed = feedparser.parse(resp.content)
-                    feed_title = parsed.feed.get("title", "")
-
-                    kept = 0
-                    for entry in parsed.entries:
-                        if kept >= cap:
-                            break
-                        dt = _entry_datetime(entry)
-                        if since is not None and dt is not None and dt < since:
-                            continue
-                        articles.append(_normalize_entry(entry, feed_title, dt))
-                        kept += 1
-
-                    # 0 article gardé sur un flux joignable = anomalie (flux vide, tout
-                    # filtré par `since`...) : on le signale au lieu de l'avaler.
-                    if kept == 0:
-                        logger.warning(
-                            "fresh_news: flux %s joignable mais 0 article gardé", feed.url
-                        )
-                    else:
-                        logger.info("fresh_news: flux %s — %d article(s)", feed.url, kept)
-
-                except Exception as exc:
-                    logger.warning("fresh_news: flux %s ignoré — %s", feed.url, exc)
-
+        github = await _fetch_github(settings)
     except Exception as exc:
-        logger.warning("fresh_news: échec global — %s", exc)
-        return []
+        logger.warning("fresh_news[github]: global failure — %s", exc)
+        github = []
 
-    # Bilan global : 0 article tous flux confondus ne doit pas passer inaperçu.
+    try:
+        tldr = await _fetch_tldr(settings)
+    except Exception as exc:
+        logger.warning("fresh_news[tldr]: global failure — %s", exc)
+        tldr = []
+
+    articles = github + tldr
     if not articles:
-        logger.warning(
-            "fresh_news: AUCUN article frais récupéré (%d flux configuré(s))", len(feeds)
-        )
+        logger.warning("fresh_news: no fresh article retrieved")
     else:
         logger.info(
-            "fresh_news: %d article(s) frais au total (%d flux)", len(articles), len(feeds)
+            "fresh_news: %d fresh article(s) (github=%d, tldr=%d)",
+            len(articles),
+            len(github),
+            len(tldr),
         )
-
     return articles
 
 
 if __name__ == "__main__":
-    # Lancement manuel : `uv run python -m app.runtime.fresh_news`
-    # Affiche les logs (INFO) + un récap lisible des articles récupérés.
-    import asyncio
-
+    # Manual launch: `uv run python -m app.runtime.fresh_news`
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     results = asyncio.run(fetch(topics=[], since=None))
 
-    print(f"\n=== {len(results)} article(s) frais ===")
+    print(f"\n=== {len(results)} fresh article(s) ===")
     for art in results:
-        print(f"\n[{', '.join(art['tags'])}] {art['source']} — {art['date']}")
+        print(f"\n{art['source']} — {art['date']}")
         print(f"  {art['title']}")
         print(f"  {art['url']}")

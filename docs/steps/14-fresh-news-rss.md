@@ -1,5 +1,11 @@
 # fresh_news — agrégateur RSS générique
 
+> ⚠️ **Obsolète (2026-06-21)** — Ce flux RSS n'est plus celui de `fresh_news`. RSS est
+> devenu un **ingester froid** (`app/ingest/sources_ingesters/rss_feed.py`, SQLite →
+> Chroma) et `fresh_news` s'appuie désormais sur les **releases GitHub** + le **scraper
+> TLDR** (cascade J/J-1/J-2). Document conservé pour l'historique des décisions ; pour le
+> fonctionnement actuel, voir **`docs/fonctionnement-fresh-news.md`**.
+
 > **Statut : implémenté** (2026-06-13). Couvre le point 4 (« fresh news ») :
 > `app/runtime/fresh_news.py`, le hook d'actu *chaude* injectée au moment du chat (non
 > indexée). 3 fichiers écrits et validés (`make lint`, `mypy`, `pytest test_fresh_news`
