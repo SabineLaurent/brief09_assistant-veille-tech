@@ -7,14 +7,16 @@ Le reste du pipeline (`/chat`, retrieval vectoriel, intégration LLM, frontend, 
 Docker) est fonctionnel — voir `first-sight.md` (vue d'ensemble) et `deep-dive.md`
 (trace fonction par fonction + contrats exacts dérivés des tests d'acceptance, Partie 2).
 
-Modules concernés (tous actuellement en `raise NotImplementedError`) :
+Modules concernés (état indiqué par ligne ; ⚠️ ce document décrit le périmètre tel que
+cadré au départ — certaines briques ont depuis été implémentées différemment de la piste
+proposée) :
 
 | Module | Fonction(s) | Test d'acceptance |
 |---|---|---|
 | `app/ingest/cleaning.py` | `clean_html_to_markdown`, `dedupe`, `chunk`, `strip_boilerplate` | `test_cleaning.py` |
 | `app/ingest/scraper.py` | `Scraper.run(urls)` | `test_scraper.py` |
 | `app/ingest/news_api.py` | `NewsApiIngester.run(topics)` | `test_news_api_ingester.py` |
-| `app/runtime/fresh_news.py` | `fetch(topics, since)` (async) | `test_fresh_news.py` |
+| `app/runtime/fresh_news.py` | `fetch(topics, since)` (async) — ✅ **fait** (GitHub releases + TLDR live, voir §3.4) | `test_fresh_news.py` |
 | `app/ingest/enrich.py` | `enrich_retrieval(retrieved)` | — (pas de test dédié) |
 | `scripts/ingest_cli.py` | commandes `news`, `scrape` | — (pas de test dédié) |
 
@@ -68,8 +70,8 @@ par `cleaning`/Chroma.
 3. **`news_api.py`** — indépendant du scraper ; nécessite `httpx` + une clé NewsAPI.
 4. **`scripts/ingest_cli.py`** — câble `news_api`/`scraper` → `cleaning` → indexation
    Chroma ; ne peut être finalisé qu'une fois 1-3 prêts.
-5. **`fresh_news.py`** — indépendant de l'indexation (appel NewsAPI live, pas de Chroma) ;
-   peut être fait en parallèle de 4.
+5. **`fresh_news.py`** — ✅ fait : indépendant de l'indexation (pas de Chroma). Sources
+   live = GitHub releases + TLDR (cf. §3.4), et non NewsAPI comme envisagé initialement.
 6. **`enrich.py`** — hook optionnel, le pipeline tourne sans lui (`handle_chat` dégrade
    proprement sur `NotImplementedError`) ; à traiter en dernier ou à laisser en stub si
    le périmètre est jugé suffisant sans lui.
@@ -162,21 +164,25 @@ par `cleaning`/Chroma.
   temporelle (`from=`/`sortBy=publishedAt` ?), et — point d'attention important — gestion
   des erreurs réseau / clé API absente (voir §5, "tolérance aux pannes").
 
-### 3.4 `app/runtime/fresh_news.py` — `fetch(topics, since) -> list[dict]` (async)
+### 3.4 `app/runtime/fresh_news.py` — `fetch(topics, since) -> list[dict]` (async) — ✅ fait
 - **Contrat** (`test_fresh_news.py`) : coroutine (`async def`, appelée avec `await` dans
-  `chat.py:24`) ; chaque article contient au minimum `title, url, source` ; `since`
+  `chat.py`) ; chaque article contient au minimum `title, url, source` ; `since`
   (un `datetime` ou `None`) doit être accepté sans erreur (le test ne vérifie pas que le
   filtrage est effectif, juste l'absence d'exception) ; `topics=[]` → `[]`/liste.
-- **Piste** : `httpx.AsyncClient`, requête `/everything` avec `from=since.isoformat()`
-  si `since` est fourni. Cohérent avec `news_api.py` pour la normalisation des champs.
-- ⚠️ **Point d'intégration critique** (noté dans `deep-dive.md` §7, table `_build_cards`) :
-  contrairement aux chunks indexés, **les `tags` des articles frais ne passent PAS par
-  `_split_tags`** côté `llm._build_cards` — ils doivent donc déjà arriver sous forme de
-  `list[str]` directement exploitable (`art["tags"]`, défaut `[]`). Pour bien s'intégrer
-  à `_build_cards`/`_format_context`, fournir aussi `content` et/ou `description`, et
-  `date`.
-- **Décision ouverte** : NewsAPI ne fournit pas de tags par article — les dériver du
-  `topic` recherché (p. ex. `tags=[topic]`) est l'option la plus directe.
+- **Implémenté** (≠ piste NewsAPI initiale) : pas de NewsAPI, mais **deux sources live**
+  combinées, chacune isolée et dégradable (toute panne → `[]`) :
+  - **GitHub releases** (`_fetch_github`) : dernière release de chaque
+    `settings.sources.github_watched_repos` (`GET /repos/{owner}/{name}/releases/latest`,
+    `httpx.AsyncClient`). Repo sans release / injoignable / rate-limité → loggé et sauté.
+  - **TLDR.tech live** (`_fetch_tldr`) : éditions du jour via `TldrScraper`, avec
+    **cascade J → J-1 → J-2** (`_TLDR_LOOKBACK_DAYS = 3`) jusqu'au premier jour non vide.
+    Le scraper étant synchrone, il tourne via `asyncio.to_thread` pour ne pas bloquer la
+    boucle async du chat.
+- Articles normalisés `{title, url, source, date, content, tags}` — `tags` toujours `[]`.
+- ⚠️ **Point d'intégration respecté** : les `tags` des articles frais ne passent PAS par
+  `_split_tags` côté `llm._build_cards` — ils arrivent déjà en `list[str]` (ici `[]`).
+- **`topics`/`since`** : acceptés par contrat mais **non filtrants** — les sources sont
+  déjà bornées en fraîcheur (dernière release par repo, TLDR sur 3 jours).
 
 ### 3.5 `app/ingest/enrich.py` — `enrich_retrieval(retrieved: list[dict]) -> list[dict]`
 - **Contrat** : pas de test d'acceptance dédié — uniquement utilisé via
@@ -285,5 +291,5 @@ dev — listé "pour le moment venu" selon `CLAUDE.md`, mais pas encore câblé)
   `make chat-test`) renvoie `status="ok"` avec des `cards` correctement formées
   (`title`, `source`, `date`, `snippet`, `tags`, `url` exploitables côté frontend) —
   signe que le format d'indexation (§4) est cohérent avec `_build_cards`/`retrieval`.
-- `fresh_news.fetch` retourne des articles dont les `tags` sont déjà des `list[str]`
+- ✅ `fresh_news.fetch` retourne des articles dont les `tags` sont déjà des `list[str]`
   exploitables sans `_split_tags` (point d'intégration noté en §3.4).

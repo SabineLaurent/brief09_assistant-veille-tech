@@ -20,6 +20,7 @@ _TLDR_LOOKBACK_DAYS = 3  # today, J-1, J-2
 
 # ====== GitHub releases ======
 
+
 async def _fetch_github(settings: Settings) -> list[dict[str, Any]]:
     """Latest release of each watched repo, as fresh articles.
 
@@ -43,15 +44,11 @@ async def _fetch_github(settings: Settings) -> list[dict[str, Any]]:
     ) as client:
         for repo in repos:
             try:
-                resp = await client.get(
-                    f"{base}/repos/{repo.owner}/{repo.name}/releases/latest"
-                )
+                resp = await client.get(f"{base}/repos/{repo.owner}/{repo.name}/releases/latest")
                 resp.raise_for_status()
                 articles.append(_normalize_release(repo.owner, repo.name, resp.json()))
             except Exception as exc:
-                logger.warning(
-                    "fresh_news[github]: %s/%s skipped — %s", repo.owner, repo.name, exc
-                )
+                logger.warning("fresh_news[github]: %s/%s skipped — %s", repo.owner, repo.name, exc)
 
     logger.info("fresh_news[github]: %d release(s) (%d repo(s))", len(articles), len(repos))
     return articles
@@ -72,6 +69,7 @@ def _normalize_release(owner: str, name: str, data: dict[str, Any]) -> dict[str,
 
 # ====== TLDR.tech (live) ======
 
+
 async def _fetch_tldr(settings: Settings) -> list[dict[str, Any]]:
     """Today's TLDR editions (cascading to previous days if empty)."""
     scraper = TldrScraper()
@@ -82,9 +80,7 @@ async def _fetch_tldr(settings: Settings) -> list[dict[str, Any]]:
     return [_normalize_tldr(a) for a in articles]
 
 
-def _scrape_tldr_cascade(
-    scraper: TldrScraper, editions: list[TldrEdition]
-) -> list[TldrArticle]:
+def _scrape_tldr_cascade(scraper: TldrScraper, editions: list[TldrEdition]) -> list[TldrArticle]:
     """Cascade today → J-1 → J-2: return the first non-empty day.
 
     A TLDR edition may not exist yet (published later in the day) or be missing
@@ -100,9 +96,7 @@ def _scrape_tldr_cascade(
             return articles
         logger.info("fresh_news[tldr]: 0 article for %s, trying previous day…", day)
 
-    logger.warning(
-        "fresh_news[tldr]: no article over the last %d day(s)", _TLDR_LOOKBACK_DAYS
-    )
+    logger.warning("fresh_news[tldr]: no article over the last %d day(s)", _TLDR_LOOKBACK_DAYS)
     return []
 
 
@@ -119,6 +113,7 @@ def _normalize_tldr(article: TldrArticle) -> dict[str, Any]:
 
 
 # ====== Public entrypoint ======
+
 
 async def fetch(
     topics: list[str],
@@ -162,12 +157,44 @@ async def fetch(
 
 if __name__ == "__main__":
     # Manual launch: `uv run python -m app.runtime.fresh_news`
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    from collections import Counter
+
+    from rich.console import Console
+    from rich.logging import RichHandler
+    from rich.table import Table
+
+    console = Console()
+
+    # Route our per-source traces ([github]/[tldr]) through rich so they show up
+    # colored during the fetch; silence httpx/httpcore's per-request INFO noise.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[RichHandler(console=console, show_path=False, show_time=False)],
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     results = asyncio.run(fetch(topics=[], since=None))
 
-    print(f"\n=== {len(results)} fresh article(s) ===")
+    # Recap table: count of fresh articles per real source.
+    per_source: Counter[str] = Counter(art["source"] for art in results)
+    recap = Table(title="Articles frais par source")
+    recap.add_column("Source", style="cyan", no_wrap=True)
+    recap.add_column("Nombre", justify="right", style="green")
+    for source in sorted(per_source):
+        recap.add_row(source, str(per_source[source]))
+    recap.add_section()
+    recap.add_row("Total", str(len(results)))
+    console.print(recap)
+
+    # Detail table: one row per fresh article. Title/URL kept on a single line
+    # (ellipsis) so the table stays readable even with ~100 articles.
+    detail = Table(title="Détail", expand=True)
+    detail.add_column("Source", style="cyan", no_wrap=True)
+    detail.add_column("Date", no_wrap=True)
+    detail.add_column("Titre", ratio=2, no_wrap=True, overflow="ellipsis")
+    detail.add_column("URL", ratio=1, no_wrap=True, overflow="ellipsis", style="dim")
     for art in results:
-        print(f"\n{art['source']} — {art['date']}")
-        print(f"  {art['title']}")
-        print(f"  {art['url']}")
+        detail.add_row(art["source"], (art.get("date") or "—")[:10], art["title"], art["url"])
+    console.print(detail)

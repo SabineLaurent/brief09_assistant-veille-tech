@@ -87,7 +87,7 @@ Frontend (page.tsx) ──POST /chat──▶ main.py ──▶ chat.handle_chat
                        ┌─────────────────────────────┼──────────────────────────┐
                        ▼                             ▼                          ▼
             retrieval.retrieve(query)     ingest.enrich.enrich_retrieval   runtime.fresh_news.fetch
-            (embedding + query Chroma)    (hook, stub)                     (live, stub)
+            (embedding + query Chroma)    (hook, stub)                     (live: GitHub releases + TLDR)
                        └──────────────┬──────────────┴──────────────────────────┘
                                       ▼
                          rag.llm.compose_answer()  ──▶ ChatResponse {answer, cards, status}
@@ -95,7 +95,9 @@ Frontend (page.tsx) ──POST /chat──▶ main.py ──▶ chat.handle_chat
 
 `handle_chat` enveloppe `enrich_retrieval` et `fresh_news.fetch` dans des
 `try/except NotImplementedError` : ces hooks sont optionnels et dégradables — le chat reste
-fonctionnel sans eux.
+fonctionnel sans eux. `enrich_retrieval` lève encore (stub → `enriched = []`).
+`fresh_news.fetch` est désormais implémenté et se dégrade en interne (`[]` sur panne) sans
+lever : son `except NotImplementedError` est de fait inerte, conservé par symétrie.
 
 ### Ingestion incrémentale (watermark)
 
@@ -152,8 +154,14 @@ Voir `docs/steps/12-ingestion-incrementale-watermark.md`.
   configuré → mode dégradé), `compose_answer` (3 cas : `empty` / `degraded` / `ok`, parsing
   JSON `{answer, cards}` avec repli), `_build_cards`, `_split_tags` (gère tags `list` **ou**
   string).
-- `app/runtime/fresh_news.py`, `app/ingest/enrich.py`, CLI `news`/`scrape` — **encore en
-  stub** (`NotImplementedError`).
+- `app/runtime/fresh_news.py` — `fetch(topics, since)` (async) : actualité **live** au
+  moment du chat, hors index Chroma. Deux sources isolées et dégradables (toute panne →
+  `[]`) : **GitHub releases** (dernière release de chaque `github_watched_repos`) et
+  **TLDR.tech live** (éditions du jour, cascade J-1/J-2 si vide, scraper synchrone lancé
+  via `asyncio.to_thread`). Articles normalisés `{title, url, source, date, content,
+  tags=[]}` (`tags` déjà en `list[str]`, pas de `_split_tags`). `topics`/`since` acceptés
+  par contrat mais non filtrants (sources déjà bornées en fraîcheur).
+- `app/ingest/enrich.py`, CLI `news`/`scrape` — **encore en stub** (`NotImplementedError`).
 - `web/` — frontend Next.js : une page (`app/page.tsx`), client REST (`lib/api.ts`).
 
 ### Indexation Chroma — contraintes de cohérence

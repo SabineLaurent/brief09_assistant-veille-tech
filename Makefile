@@ -1,8 +1,24 @@
-.PHONY: up down logs install test fmt lint typecheck pipeline-e2e ingest arxiv-ingest tldr-ingest rss-ingest arxiv-e2e tldr-e2e review-blocking review index chat-test chromadelete chromareset
+.PHONY: install \
+	up down logs \
+	test fmt lint typecheck \
+	migrate \
+	ingest arxiv-ingest tldr-ingest rss-ingest index review-blocking review \
+	pipeline-e2e arxiv-e2e tldr-e2e \
+	fresh-news \
+	chromareset chromadelete \
+	chat-test
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Setup
+# ──────────────────────────────────────────────────────────────────────────────
 install:
 	uv sync
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Docker
+# ──────────────────────────────────────────────────────────────────────────────
 up:
 	docker compose up -d
 
@@ -12,6 +28,10 @@ down:
 logs:
 	docker compose logs -f --tail=100
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Qualité de code
+# ──────────────────────────────────────────────────────────────────────────────
 test:
 	uv run pytest -v
 
@@ -25,13 +45,17 @@ lint:
 typecheck:
 	uv run mypy app
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Base SQLite
+# ──────────────────────────────────────────────────────────────────────────────
 migrate:
 	uv run python -m app.data.migrate
 
-# Full chain: collect → recover blockers → index → classic review (annotate + sync
-# Chroma metadata). The classic review runs last, after the index is reachable.
-pipeline-e2e: ingest review-blocking index review
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Ingestion — collecte par source (→ SQLite)
+# ──────────────────────────────────────────────────────────────────────────────
 ingest: arxiv-ingest tldr-ingest rss-ingest
 
 arxiv-ingest:
@@ -42,6 +66,13 @@ tldr-ingest:
 
 rss-ingest:
 	PYTHONPATH=. uv run python scripts/ingest_cli.py rss
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ingestion — index & review
+# ──────────────────────────────────────────────────────────────────────────────
+index:
+	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python scripts/ingest_cli.py index
 
 # Récupère les bloquants (titre déchet et/ou contenu maigre) AVANT l'index : scrape la
 # source pour relire le titre / résumer le contenu, rejette ce qui n'est pas récupérable.
@@ -54,13 +85,30 @@ review-blocking:
 review:
 	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python -m app.review.review_orchestrator
 
-index:
-	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python scripts/ingest_cli.py index
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pipelines bout en bout
+# ──────────────────────────────────────────────────────────────────────────────
+# Full chain: collect → recover blockers → index → classic review (annotate + sync
+# Chroma metadata). The classic review runs last, after the index is reachable.
+pipeline-e2e: ingest review-blocking index review
 
 arxiv-e2e: arxiv-ingest review-blocking index
 
 tldr-e2e: tldr-ingest review-blocking index
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Runtime — aperçu live (hors index Chroma)
+# ──────────────────────────────────────────────────────────────────────────────
+# Aperçu live des news fraîches (GitHub releases + TLDR du jour) telles que /chat les
+# verrait, hors index Chroma : tables rich récap par source + détail. Lecture seule.
+fresh-news:
+	PYTHONPATH=. uv run python -m app.runtime.fresh_news
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Maintenance Chroma
+# ──────────────────────────────────────────────────────────────────────────────
 chromareset:
 	CHROMA_URL=http://localhost:8002 uv run python -c "\
 from app.rag.chroma_client import get_client; \
@@ -75,6 +123,10 @@ chromadelete:
 	rm -rf .docker-data/chroma
 	make up
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Chat
+# ──────────────────────────────────────────────────────────────────────────────
 chat-test:
 	curl -s -X POST http://localhost:8000/chat \
 		-H 'Content-Type: application/json' \
