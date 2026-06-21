@@ -74,6 +74,7 @@ def _build_cards(retrieved: list[dict[str, Any]], fresh: list[dict[str, Any]]) -
                 snippet=snippet,
                 url=meta.get("url", ""),
                 tags=_split_tags(meta.get("tags")),
+                is_fresh_news=False,
             )
         )
     for art in fresh:
@@ -85,6 +86,7 @@ def _build_cards(retrieved: list[dict[str, Any]], fresh: list[dict[str, Any]]) -
                 snippet=(art.get("content") or art.get("description") or "")[:280],
                 url=art.get("url", ""),
                 tags=art.get("tags", []),
+                is_fresh_news=True,
             )
         )
     return cards

@@ -10,7 +10,6 @@ class Source(BaseModel):
     """
 
     name: str
-    fresh_news: bool = False  # si True, ajoute le tag "New" aux articles
 
 class ArXivTopic(Source):
     """

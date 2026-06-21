@@ -21,6 +21,9 @@ class ArticleCard(BaseModel):
     snippet: str
     url: str
     tags: list[str] = Field(default_factory=list)
+    # True if the card comes from the live runtime feed (fresh_news), False if it
+    # comes from the Chroma index. Lets the frontend distinguish fresh from cold.
+    is_fresh_news: bool = False
 
 
 class Topic(BaseModel):

@@ -5,6 +5,7 @@ export type ArticleCard = {
   snippet: string;
   url: string;
   tags: string[];
+  is_fresh_news: boolean;
 };
 
 export type Topic = { slug: string; label: string };

@@ -202,6 +202,11 @@ function Card({ card }: { card: ArticleCard }) {
   return (
     <article className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/5 p-4 shadow-sm transition hover:bg-white/10">
       <header>
+        {card.is_fresh_news && (
+          <span className="mb-1 inline-flex w-fit items-center gap-1 rounded-full border border-emerald-400/50 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-300">
+            ● Fresh
+          </span>
+        )}
         <h3 className="line-clamp-2 text-base font-semibold leading-snug">
           {card.title}
         </h3>
