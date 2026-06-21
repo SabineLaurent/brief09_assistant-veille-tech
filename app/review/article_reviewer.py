@@ -15,15 +15,14 @@ from app.ingest.scraper import Scraper
 logger = logging.getLogger(__name__)
 
 
-# ── Schémas de sortie structurée ──────────────────────────────────────────────
-# Le LLM est contraint de répondre au format de l'un de ces modèles (JSON schema).
-# Deux schémas distincts pour ne payer des tokens de résumé que lorsque le content
-# est vide ou trop court.
+# ======= Structured Output Schemas =======
+# The LLM is forced to respond to the format of one of these models (JSON schema).
+# Two separate schemes to only pay summary tokens when the content is empty or too short.
 
 
 class _Review(BaseModel):
     """
-    Sortie lorsque le content est suffisant : on annote sans résumer.
+    Output when the content is sufficient: we annotate without summarizing.
     """
 
     keywords: list[str] = Field(
@@ -76,10 +75,10 @@ class ReviewResult:
 @lru_cache(maxsize=1)
 def get_mini_agent() -> ChatOpenAI | None:
     """
-    Client LLM de l'agent de review (déploiement "mini" dédié, distinct du chat).
+    LLM client of the review agent (dedicated “mini” deployment, separate from chat).
 
-    Renvoie None si l'agent n'est pas configuré, ce qui permet une dégradation propre :
-    le pipeline reste fonctionnel sans agent.
+    Returns None if the agent is not configured, allowing clean degradation:
+    the pipeline remains functional without an agent.
     """
     settings = get_settings()
     if not settings.azure_ai_mini_agent_endpoint or not settings.azure_ai_mini_agent_api_key:
@@ -89,7 +88,7 @@ def get_mini_agent() -> ChatOpenAI | None:
         base_url=settings.azure_ai_mini_agent_endpoint,
         api_key=settings.azure_ai_mini_agent_api_key,
         model=settings.azure_ai_mini_agent_model,
-        temperature=0.1,  # fidèle, n'invente rien
+        temperature=0.1,  # faithful, don't invent anything
     )
 
 
@@ -98,6 +97,8 @@ _TOPIC_GLOSSES = {
     "Security": "vulnerabilities, attacks, defense, cryptography, privacy.",
     "Agentic": "autonomous agents, tool-use, multi-agent systems, agent orchestration.",
     "Embedded": "on-device/edge computing, hardware, IoT, tinyML, firmware.",
+    "Web": "web development, front-end, back-end, frameworks, web standards.",
+    "DevOps": "CI/CD, deployment, monitoring, observability, cloud-native.",
 }
 
 
@@ -142,6 +143,52 @@ def _scrape(url: str) -> dict | None:
     return scraped[0] if scraped else None
 
 
+@dataclass
+class _Recovery:
+    """
+    Outcome of trying to recover a blocker from its source page.
+
+    `action` drives the caller: "retry" → leave 'ingested' and try later,
+    "reject" → terminal reject, "ok" → carry on with the recovered text fields.
+    """
+
+    action: str  # "ok" | "retry" | "reject"
+    text: str = ""
+    needs_summary: bool = False
+    recovered_title: str | None = None
+
+
+def _recover_blocker(
+    url: str, title: str, content: str, title_ok: bool, content_ok: bool
+) -> _Recovery:
+    """
+    Try to recover a usable title and/or content from the source page.
+
+    Called only when the record is a blocker (title or content missing/thin).
+    A recovered title is READ from the page (never invented); thin content is
+    flagged for summarization (`needs_summary`).
+    """
+    scraped = _scrape(url) if url else None
+    if scraped is None:
+        # No URL → can never be indexed → reject. URL but unreachable → maybe
+        # transient → retry later.
+        return _Recovery("reject") if not url else _Recovery("retry")
+
+    text, needs_summary = content, False
+    recovered_title: str | None = None
+    page_title = scraped.get("title") or ""
+    page_content = (scraped.get("content") or "").strip()
+    if not title_ok and is_usable_title(page_title):
+        recovered_title, title_ok = page_title, True
+    if not content_ok and has_enough_content(page_content):
+        text, needs_summary, content_ok = page_content, True, True
+
+    if not (title_ok and content_ok):
+        # Source reached but still not indexable: nothing recoverable → reject.
+        return _Recovery("reject")
+    return _Recovery("ok", text=text, needs_summary=needs_summary, recovered_title=recovered_title)
+
+
 def review_article(article: dict) -> ReviewResult | None:
     """
     Review one article with a structured LLM call, recovering a junk title or thin
@@ -175,26 +222,12 @@ def review_article(article: dict) -> ReviewResult | None:
     recovered_title: str | None = None
 
     if not (title_ok and content_ok):
-        # Blocker: try to recover the missing pieces from the source page.
-        scraped = _scrape(url) if url else None
-        if scraped is None:
-            if not url:
-                # No source to recover from → can never become indexable → reject.
-                return ReviewResult(keywords=[], tags=[], rejected=True)
-            # Page unreachable, possibly transient → leave 'ingested', retry later.
+        rec = _recover_blocker(url, title, content, title_ok, content_ok)
+        if rec.action == "retry":
             return None
-
-        page_title = scraped.get("title") or ""
-        page_content = (scraped.get("content") or "").strip()
-        if not title_ok and is_usable_title(page_title):
-            recovered_title, title_ok = page_title, True
-        if not content_ok and has_enough_content(page_content):
-            text, needs_summary, content_ok = page_content, True, True
-
-        if not (title_ok and content_ok):
-            # Source reached but still not indexable: nothing recoverable → terminal
-            # reject (also breaks the blocker loop — it would never pass the indexer).
+        if rec.action == "reject":
             return ReviewResult(keywords=[], tags=[], rejected=True)
+        text, needs_summary, recovered_title = rec.text, rec.needs_summary, rec.recovered_title
 
     schema = _ReviewWithSummary if needs_summary else _Review
 

@@ -12,7 +12,7 @@ from app.data.article_store import (
 )
 from app.indexing.indexer import patch_article_metadata
 from app.ingest.cleaning import has_enough_content, is_usable_title
-from app.review.reviewer import review_article
+from app.review.article_reviewer import review_article
 
 log = logging.getLogger(__name__)
 
@@ -130,8 +130,8 @@ def run_blocking_review(limit: int | None = None) -> ReviewRunResult:
 if __name__ == "__main__":
     """
     Standalone entry point for a review pass:
-        CHROMA_URL=http://localhost:8002 uv run python -m app.review.runner
-        CHROMA_URL=http://localhost:8002 uv run python -m app.review.runner blocking
+        CHROMA_URL=http://localhost:8002 uv run python -m app.review.review_orchestrator
+        CHROMA_URL=http://localhost:8002 uv run python -m app.review.review_orchestrator blocking
 
      - default: review every unreviewed article (llm_reviewed_at IS NULL)
      - `blocking`: review only the blockers (junk title and/or thin content), to run

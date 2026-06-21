@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from app.data.article_store import mark_chroma_synced, upsert_article
 from app.data.migrate import init_db
-from app.review import runner
+from app.review import review_orchestrator as runner
 
 
 def _make_db(tmp_path):

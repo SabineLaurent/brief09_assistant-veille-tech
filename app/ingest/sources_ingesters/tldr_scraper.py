@@ -22,7 +22,7 @@ class TldrScraper:
     base_url: str = get_settings().sources.tldr_base_url
     user_agent: str = "nauda-palisse-veille/0.1"
     timeout: float = 10.0
-    editions: list[str] = field(default_factory=lambda: ["tech", "webdev", "ai"])
+    editions: list[str] = field(default_factory=lambda: ["ai", "infosec", "it", "design", "dev", "devops", "tech", "data", "hardware"])
 
     def build_urls(self, editions: list[str], date: str) -> list[str]:
         """

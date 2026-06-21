@@ -44,12 +44,12 @@ tldr-ingest:
 # source pour relire le titre / résumer le contenu, rejette ce qui n'est pas récupérable.
 # Dégrade proprement si l'agent mini n'est pas configuré (tout est skippé, retenté plus tard).
 review-blocking:
-	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python -m app.review.runner blocking
+	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python -m app.review.review_orchestrator blocking
 
 # Passe d'annotation complète (keywords/tags de tous les non-reviewés), APRÈS l'index :
 # patche la métadonnée des articles déjà indexés. Hors chemin critique de fraîcheur.
 review:
-	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python -m app.review.runner
+	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python -m app.review.review_orchestrator
 
 index:
 	PYTHONPATH=. CHROMA_URL=http://localhost:8002 uv run python scripts/ingest_cli.py index

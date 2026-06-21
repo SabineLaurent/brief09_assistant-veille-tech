@@ -2,8 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.review import reviewer
-from app.review.runner import is_blocker
+from app.review import article_reviewer as reviewer
+from app.review.review_orchestrator import is_blocker
 
 GOOD_TITLE = "A Real Article Title"
 GOOD_CONTENT = "x" * 200  # comfortably above MIN_CONTENT_CHARS
