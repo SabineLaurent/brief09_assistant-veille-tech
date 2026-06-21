@@ -53,7 +53,7 @@ class TldrScraper:
         Output:
             list of TldrArticle (all editions combined), each of the form:
                 reference="<sha1 of url without tracking>", title="...",
-                source="tldr.tech", published_date=datetime|None,
+                source="tldr.tech-<edition>", published_date=datetime|None,
                 content="<Markdown summary>", url="https://...", authors=[]
             tags and keywords remain empty: it is the review agent who enters them.
             Empty list if all URLs failed.
@@ -69,41 +69,50 @@ class TldrScraper:
                     resp = client.get(url)
                     resp.raise_for_status()
                     date = _extract_date(url)
-                    articles.extend(_parse_newsletter(resp.text, date))
+                    edition = _extract_edition(url)
+                    articles.extend(_parse_newsletter(resp.text, date, edition))
                 except Exception as e:
                     log.warning("TldrScraper: failed to fetch %s — %s", url, e)
         return articles
 
     def run_incremental(self) -> list[TldrArticle]:
-        """Incremental collection: calculates the missing editions then scrapes.
+        """Incremental collection: per-edition catch-up, then scrape.
 
-        Encapsulates the sequence that lived until now in the `tldr` CLI:
-            get_watermark(article_store) → missing_edition_dates → build_urls → run
+        Each edition (ai, tech, dev…) has its own watermark, keyed on the stored
+        source "tldr.tech-<edition>", so editions catch up independently:
+            get_watermark(per edition) → missing_edition_dates → build_urls → run
 
         Output:
-            TldrArticle list of missing editions (watermark+1 →
-            today). Empty list if the database is already up to date.
+            TldrArticle list of missing editions (each edition's watermark+1 →
+            today). Empty list if every edition is already up to date.
 
-        During: aligns TLDR with arXiv — caller just needs to do
-        `.run_incremental()` without knowing the watermark mechanics.
+        Caller just needs to do `.run_incremental()` without knowing the
+        watermark mechanics.
         """
         settings = get_settings()
-        watermark = get_watermark("tldr.tech", "published_date")
         start_date = date.fromisoformat(settings.sources.tldr_start_date)
-        dates = missing_edition_dates(watermark, date.today(), start_date)
-        if not dates:
-            log.info("TLDR déjà à jour, rien à scraper.")
-            return []
+        today = date.today()
 
-        urls = [u for d in dates for u in self.build_urls(self.editions, d)]
-        log.info(
-            "TLDR : %d date(s) à scraper (%s → %s), %d URL(s).",
-            len(dates),
-            dates[0],
-            dates[-1],
-            len(urls),
-        )
-        return self.run(urls)
+        # Scrape edition by edition so the source currently being ingested is
+        # visible live (one log line per source), and each edition uses its own
+        # watermark to catch up independently.
+        articles: list[TldrArticle] = []
+        for edition in self.editions:
+            if not edition.name:
+                continue
+            source = f"tldr.tech-{edition.name}"
+            watermark = get_watermark(source, "published_date")
+            dates = missing_edition_dates(watermark, today, start_date)
+            if not dates:
+                continue
+            urls = [u for d in dates for u in self.build_urls([edition], d)]
+            edition_articles = self.run(urls)
+            log.info("[tldr] %s … %d article(s)", source, len(edition_articles))
+            articles.extend(edition_articles)
+
+        if not articles:
+            log.info("TLDR déjà à jour, rien à scraper.")
+        return articles
 
 
 def missing_edition_dates(watermark: datetime | None, today: date, start_date: date) -> list[str]:
@@ -139,7 +148,16 @@ def _extract_date(url: str) -> str:
     return match.group(1) if match else ""
 
 
-def _parse_newsletter(html: str, date: str) -> list[TldrArticle]:
+def _extract_edition(url: str) -> str:
+    """
+    Input: newsletter URL, e.g. "https://tldr.tech/ai/2026-06-10"
+    Output: the edition slug ("ai"); "" if not found.
+    """
+    match = re.search(r"/([^/]+)/\d{4}-\d{2}-\d{2}", url)
+    return match.group(1) if match else ""
+
+
+def _parse_newsletter(html: str, date: str, edition: str) -> list[TldrArticle]:
     """
     Parses the HTML of a TLDR newsletter into normalized articles.
 
@@ -148,6 +166,8 @@ def _parse_newsletter(html: str, date: str) -> list[TldrArticle]:
                <section> by category, containing <article> with a link
                a.font-bold>h3 for the title and a div.newsletter-html for the summary)
         date: date of edition in "YYYY-MM-DD" format (can be "")
+        edition: edition slug (e.g. "ai") → stored as source "tldr.tech-<edition>"
+            (falls back to "tldr.tech" when empty)
 
     Output:
         liste de TldrArticle (voir TldrScraper.run pour la forme exacte).
@@ -156,6 +176,8 @@ def _parse_newsletter(html: str, date: str) -> list[TldrArticle]:
     """
     soup = BeautifulSoup(html, "lxml")
     articles = []
+
+    source = f"tldr.tech-{edition}" if edition else "tldr.tech"
 
     published_date: datetime | None = None
     if date:
@@ -191,7 +213,7 @@ def _parse_newsletter(html: str, date: str) -> list[TldrArticle]:
                 TldrArticle(
                     reference=reference,
                     title=title,
-                    source="tldr.tech",
+                    source=source,
                     published_date=published_date,
                     content=content,
                     url=source_url,
